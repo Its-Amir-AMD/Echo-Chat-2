@@ -10,27 +10,22 @@ import com.example.data.model.MessageEntity
 import com.example.data.model.PostEntity
 import com.example.data.model.StoryEntity
 import com.example.data.model.UserProfileEntity
-import com.example.data.remote.FirebaseAuthManager
-import com.example.data.remote.FirestoreSyncManager
 import com.example.data.repository.EchoChatRepository
 import com.example.util.AppLanguage
 import com.example.util.UserPreferences
-import com.google.firebase.FirebaseApp
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.launchIn
-import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.first
+import com.example.data.local.EchoChatDao
+import com.example.data.remote.ApiUser
+import com.example.data.remote.PhpApiClient
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class EchoChatViewModel(application: Application) : AndroidViewModel(application) {
@@ -38,209 +33,279 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     private val repository: EchoChatRepository
     private val userPreferences = UserPreferences(application)
 
-    // Cloud sync is entirely optional. These are only usable once a real Firebase
-    // project is linked (see app/FIREBASE_SETUP.md); until then they stay inert and
-    // every screen keeps working against local Room data exactly as before.
-    private val isFirebaseConfigured: Boolean
-    private val authManager: FirebaseAuthManager?
-    private val syncManager: FirestoreSyncManager?
+    private lateinit var dao: EchoChatDao
+    private val api = PhpApiClient(application)
+    private var remoteSyncJob: Job? = null
 
     private val _accountState = MutableStateFlow(AccountUiState())
     val accountState: StateFlow<AccountUiState> = _accountState.asStateFlow()
 
+    val currentServerUrl: String
+        get() = api.currentServerUrl
+
     init {
         val database = EchoDatabase.getInstance(application)
-        repository = EchoChatRepository(database.chatDao(), viewModelScope)
+        dao = database.chatDao()
+        repository = EchoChatRepository(dao, viewModelScope)
 
-        isFirebaseConfigured = runCatching { FirebaseApp.getApps(application).isNotEmpty() }
-            .getOrDefault(false)
-
-        // Avoid briefly exposing the local/demo UI while Firebase restores a saved session.
-        if (isFirebaseConfigured) {
-            _accountState.value = AccountUiState(isCloudAvailable = true, isBusy = true)
-        }
-
-        if (isFirebaseConfigured) {
-            val newAuthManager = FirebaseAuthManager()
-            val newSyncManager = FirestoreSyncManager(database.chatDao(), viewModelScope)
-            authManager = newAuthManager
-            syncManager = newSyncManager
-            newAuthManager.authStateFlow()
-                .catch { /* Treat any auth plumbing failure as signed-out, never crash the UI. */ }
-                .onEach { user ->
-                    if (user != null) {
-                        val sessionPrefs = application.getSharedPreferences(
-                            "echochat_account_cache",
-                            android.content.Context.MODE_PRIVATE
-                        )
-                        val previousUserId = sessionPrefs.getString("last_active_uid", null)
-                        if (previousUserId != user.uid) {
-                            try {
-                                if (previousUserId == null) {
-                                    // Keep locally authored profile/feed content on first sign-in,
-                                    // but never show old demo/local-only direct conversations.
-                                    newSyncManager.clearUnbackedPrivateConversations()
-                                } else {
-                                    // A real account switch must not expose the previous user's
-                                    // cached private messages or account-local social content.
-                                    newSyncManager.clearLocalAccountScopedCache()
-                                }
-                                sessionPrefs.edit().putString("last_active_uid", user.uid).apply()
-                            } catch (_: Exception) {
-                                _accountState.value = AccountUiState(
-                                    isCloudAvailable = true,
-                                    isSignedIn = false,
-                                    lastError = "Could not safely switch account data on this device. Sign out and retry."
-                                )
-                                newAuthManager.signOut()
-                                return@onEach
-                            }
-                        }
-
-                        newSyncManager.start(user.uid, user.displayName)
-                        val registrationPending = newAuthManager.isRegistrationInProgress
-                        _accountState.value = AccountUiState(
-                            isCloudAvailable = true,
-                            isSignedIn = !registrationPending,
-                            userId = user.uid,
-                            displayName = user.displayName,
-                            email = user.email,
-                            isBusy = registrationPending
-                        )
-                        if (!registrationPending) {
-                            viewModelScope.launch {
-                                runCatching {
-                                    newSyncManager.ensureOwnDirectoryProfile(user.uid, user.displayName)
-                                }.onSuccess { username ->
-                                    if (_accountState.value.userId == user.uid) {
-                                        _accountState.value = _accountState.value.copy(
-                                            username = username,
-                                            isBusy = false
-                                        )
-                                    }
-                                }
-                            }
+        if (!api.isConfigured) {
+            _accountState.value = AccountUiState(isCloudAvailable = false)
+        } else {
+            _accountState.value = AccountUiState(isCloudAvailable = false, isBusy = true)
+            viewModelScope.launch {
+                try {
+                    api.checkHealth()
+                    if (api.hasToken) {
+                        try {
+                            acceptSignedInUser(api.currentUser())
+                        } catch (error: Exception) {
+                            _accountState.value = AccountUiState(
+                                isCloudAvailable = true,
+                                lastError = "نشست قبلی معتبر نیست یا قابل بررسی نیست؛ دوباره وارد شوید. / Please sign in again."
+                            )
                         }
                     } else {
-                        newSyncManager.stop()
-                        val previous = _accountState.value
-                        _accountState.value = AccountUiState(
-                            isCloudAvailable = true,
-                            isSignedIn = false,
-                            lastError = previous.lastError,
-                            lastMessage = previous.lastMessage
-                        )
+                        _accountState.value = AccountUiState(isCloudAvailable = true)
                     }
+                } catch (error: Exception) {
+                    _accountState.value = AccountUiState(
+                        isCloudAvailable = false,
+                        lastError = error.message ?: "ارتباط با سرور برقرار نشد. / Could not connect to the server."
+                    )
                 }
-                .launchIn(viewModelScope)
-        } else {
-            authManager = null
-            syncManager = null
-            _accountState.value = AccountUiState(isCloudAvailable = false, isSignedIn = false)
+            }
         }
     }
 
-    /** Starts Google sign-in. The Web client ID is read from google-services.json. */
-    fun signInWithGoogle(context: android.content.Context) {
-        val manager = authManager ?: run {
+    /** Save and verify a self-hosted PHP API URL before enabling sign-in. */
+    fun configureServer(url: String) {
+        val previousUrl = api.currentServerUrl
+        try {
+            api.configureBaseUrl(url)
+        } catch (error: Exception) {
             _accountState.value = _accountState.value.copy(
                 isBusy = false,
-                lastError = "Cloud authentication is not configured for this build."
+                lastError = error.message ?: "آدرس سرور معتبر نیست."
             )
             return
         }
-        _accountState.value = _accountState.value.copy(isBusy = true, lastError = null, lastMessage = null)
+
+        if (!previousUrl.equals(api.currentServerUrl, ignoreCase = true)) {
+            remoteSyncJob?.cancel()
+            api.clearLocalSession()
+        }
+        _accountState.value = AccountUiState(isCloudAvailable = false, isBusy = true)
         viewModelScope.launch {
-            runCatching { manager.signInWithGoogle(context) }
-                .onFailure { e ->
-                    _accountState.value = _accountState.value.copy(
-                        isBusy = false,
-                        lastError = e.message ?: "Google sign-in failed."
-                    )
+            try {
+                api.checkHealth()
+                if (api.hasToken) {
+                    val user = runCatching { api.currentUser() }.getOrNull()
+                    if (user != null) {
+                        acceptSignedInUser(user)
+                        return@launch
+                    }
                 }
+                _accountState.value = AccountUiState(
+                    isCloudAvailable = true,
+                    lastMessage = "اتصال به سرور برقرار شد. / Server connection established."
+                )
+            } catch (error: Exception) {
+                _accountState.value = AccountUiState(
+                    isCloudAvailable = false,
+                    lastError = error.message ?: "سرور پاسخ نداد. / The server did not respond."
+                )
+            }
         }
     }
 
     fun signInWithEmail(email: String, password: String) {
-        val manager = authManager ?: run {
-            _accountState.value = _accountState.value.copy(lastError = "Firebase is not configured.")
+        if (!api.isConfigured) {
+            _accountState.value = _accountState.value.copy(lastError = "ابتدا آدرس سرور را تنظیم کنید.")
             return
         }
         _accountState.value = _accountState.value.copy(isBusy = true, lastError = null, lastMessage = null)
         viewModelScope.launch {
-            runCatching { manager.signInWithEmail(email, password) }
-                .onFailure { e ->
-                    _accountState.value = _accountState.value.copy(
-                        isBusy = false,
-                        lastError = e.message ?: "Sign-in failed."
-                    )
-                }
+            try {
+                acceptSignedInUser(api.login(email, password))
+            } catch (error: Exception) {
+                _accountState.value = _accountState.value.copy(
+                    isBusy = false,
+                    lastError = error.message ?: "ورود ناموفق بود. / Sign-in failed."
+                )
+            }
         }
     }
 
     fun createAccountWithEmail(email: String, password: String, displayName: String, username: String) {
-        val manager = authManager ?: run {
-            _accountState.value = _accountState.value.copy(lastError = "Firebase is not configured.")
+        if (!api.isConfigured) {
+            _accountState.value = _accountState.value.copy(lastError = "ابتدا آدرس سرور را تنظیم کنید.")
             return
         }
         _accountState.value = _accountState.value.copy(isBusy = true, lastError = null, lastMessage = null)
         viewModelScope.launch {
-            runCatching { manager.createAccountWithEmail(email, password, displayName, username) }
-                .onSuccess { user -> updateSignedInAccount(user, username) }
-                .onFailure { e ->
-                    _accountState.value = _accountState.value.copy(
-                        isBusy = false,
-                        lastError = e.message ?: "Account creation failed."
-                    )
-                }
-        }
-    }
-
-    fun sendPasswordResetEmail(email: String) {
-        val manager = authManager ?: run {
-            _accountState.value = _accountState.value.copy(lastError = "Firebase is not configured.")
-            return
-        }
-        _accountState.value = _accountState.value.copy(isBusy = true, lastError = null, lastMessage = null)
-        viewModelScope.launch {
-            runCatching { manager.sendPasswordResetEmail(email) }
-                .onSuccess {
-                    _accountState.value = _accountState.value.copy(
-                        isBusy = false,
-                        lastMessage = "If this email is registered, a password-reset message has been sent."
-                    )
-                }
-                .onFailure { e ->
-                    _accountState.value = _accountState.value.copy(
-                        isBusy = false,
-                        lastError = e.message ?: "Password reset failed."
-                    )
-                }
+            try {
+                acceptSignedInUser(api.register(email, password, displayName, username))
+            } catch (error: Exception) {
+                _accountState.value = _accountState.value.copy(
+                    isBusy = false,
+                    lastError = error.message ?: "ثبت‌نام ناموفق بود. / Registration failed."
+                )
+            }
         }
     }
 
     fun signOut() {
-        _accountState.value = _accountState.value.copy(lastError = null, lastMessage = null)
-        authManager?.signOut()
-        syncManager?.stop()
+        remoteSyncJob?.cancel()
+        _accountState.value = _accountState.value.copy(isBusy = true, lastError = null, lastMessage = null)
+        viewModelScope.launch {
+            runCatching { api.logout() }
+            runCatching {
+                dao.deleteAllDirectMessages()
+                dao.deleteAllPrivateChannelsExceptLocalAssistant()
+                dao.deleteAllComments()
+                dao.deleteAllPosts()
+                dao.deleteAllStories()
+                dao.deleteAllProfiles()
+            }
+            _accountState.value = AccountUiState(isCloudAvailable = api.isConfigured)
+        }
     }
 
-    private fun updateSignedInAccount(
-        user: com.google.firebase.auth.FirebaseUser,
-        username: String? = null
-    ) {
+    private suspend fun acceptSignedInUser(user: ApiUser) {
+        val app = getApplication<Application>()
+        val sessionPrefs = app.getSharedPreferences("echochat_account_cache", android.content.Context.MODE_PRIVATE)
+        val previousUserId = sessionPrefs.getString("last_active_uid", null)
+        if (previousUserId != user.id) {
+            if (previousUserId == null) {
+                dao.deleteAllDirectMessages()
+                dao.deleteAllPrivateChannelsExceptLocalAssistant()
+            } else {
+                dao.deleteAllDirectMessages()
+                dao.deleteAllPrivateChannelsExceptLocalAssistant()
+                dao.deleteAllComments()
+                dao.deleteAllPosts()
+                dao.deleteAllStories()
+                dao.deleteAllProfiles()
+            }
+            sessionPrefs.edit().putString("last_active_uid", user.id).apply()
+        }
+
         _accountState.value = AccountUiState(
             isCloudAvailable = true,
             isSignedIn = true,
-            userId = user.uid,
-            username = username,
+            userId = user.id,
+            username = user.username,
             displayName = user.displayName,
             email = user.email,
             isBusy = false
         )
+        startRemoteSync(user)
     }
 
+    private fun startRemoteSync(user: ApiUser) {
+        remoteSyncJob?.cancel()
+        remoteSyncJob = viewModelScope.launch {
+            while (kotlinx.coroutines.currentCoroutineContext().isActive &&
+                api.currentToken() != null &&
+                _accountState.value.userId == user.id
+            ) {
+                try {
+                    synchronizeRemoteData(user)
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // Keep the chat UI available during temporary network outages.
+                    // The next polling pass retries queued sends and remote reads.
+                }
+                kotlinx.coroutines.delay(5000)
+            }
+        }
+    }
 
+    private suspend fun synchronizeRemoteData(user: ApiUser) {
+        val rooms = api.getRooms()
+        val conversations = api.getConversations()
+        val channelIds = linkedSetOf<String>()
+
+        for (room in rooms) {
+            val existing = dao.getChannelByIdOnce(room.id)
+            dao.insertChannel(
+                ChannelEntity(
+                    id = room.id,
+                    name = room.name,
+                    description = room.description,
+                    iconName = room.iconName,
+                    isDirectMessage = false,
+                    unreadCount = existing?.unreadCount ?: 0,
+                    lastMessage = room.lastMessage.ifBlank { existing?.lastMessage.orEmpty() },
+                    lastMessageTime = if (room.lastMessageTime > 0) room.lastMessageTime else (existing?.lastMessageTime ?: 0L),
+                    createdAt = existing?.createdAt ?: 0L
+                )
+            )
+            channelIds.add(room.id)
+        }
+
+        for (conversation in conversations) {
+            val name = conversation.peerDisplayName.ifBlank { "@" + conversation.peerUsername }
+            val existing = dao.getChannelByIdOnce(conversation.id)
+            dao.insertChannel(
+                ChannelEntity(
+                    id = conversation.id,
+                    name = name,
+                    description = "گفتگوی خصوصی",
+                    iconName = "person",
+                    isDirectMessage = true,
+                    peerName = name,
+                    peerId = conversation.peerId,
+                    peerAvatarColor = existing?.peerAvatarColor ?: 0xFF8B5CF6,
+                    unreadCount = existing?.unreadCount ?: 0,
+                    lastMessage = conversation.lastMessage,
+                    lastMessageTime = conversation.lastMessageTime,
+                    createdAt = if (conversation.createdAt > 0) conversation.createdAt else (existing?.createdAt ?: 0L)
+                )
+            )
+            channelIds.add(conversation.id)
+        }
+
+        // Retry local outgoing messages which have not yet been acknowledged by the API.
+        for (channelId in channelIds) {
+            val pending = repository.getMessagesForChannel(channelId).first()
+                .filter { !it.isSynced && it.senderId == user.id }
+            for (message in pending) {
+                try {
+                    api.sendMessage(channelId, message.id, message.content)
+                    dao.markMessagesSynced(listOf(message.id))
+                } catch (_: Exception) {
+                    // Keep it queued; the next poll will retry it.
+                }
+            }
+        }
+
+        // The API is authoritative. Upsert remote history into Room so Compose flows update.
+        for (channelId in channelIds) {
+            val remoteMessages = api.getMessages(channelId)
+            if (remoteMessages.isNotEmpty()) {
+                dao.upsertMessages(
+                    remoteMessages.map { message ->
+                        MessageEntity(
+                            id = message.id,
+                            channelId = channelId,
+                            senderId = message.senderId,
+                            senderName = message.senderName,
+                            content = message.content,
+                            timestamp = message.timestamp,
+                            isOutgoing = message.senderId == user.id,
+                            status = if (message.senderId == user.id) "sent" else "delivered",
+                            isSynced = true
+                        )
+                    }
+                )
+                val latest = remoteMessages.last()
+                dao.updateChannelLastMessage(channelId, latest.content, latest.timestamp)
+            }
+        }
+    }
+ 
     val channels: StateFlow<List<ChannelEntity>> = repository.allChannels
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -405,15 +470,21 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         val currentChannel = _selectedChannelId.value
         val reply = _replyingTo.value
         viewModelScope.launch {
-            repository.sendMessage(
+            val account = _accountState.value
+            val messageId = repository.sendMessage(
                 channelId = currentChannel,
                 content = content,
                 replyToId = reply?.id,
                 replyToSnippet = reply?.content?.take(40),
-                senderId = _accountState.value.userId ?: "local-device",
-                senderName = _accountState.value.displayName?.takeIf { it.isNotBlank() } ?: "Echo User"
+                senderId = account.userId ?: "local-device",
+                senderName = account.displayName?.takeIf { it.isNotBlank() } ?: "Echo User"
             )
             _replyingTo.value = null
+            if (account.isSignedIn && currentChannel != "bot_echo") {
+                runCatching { api.sendMessage(currentChannel, messageId, content.trim()) }
+                    .onSuccess { dao.markMessagesSynced(listOf(messageId)) }
+                // If the network call fails, the polling worker retries this local message.
+            }
         }
     }
 
@@ -443,40 +514,34 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun startDirectMessage(username: String, onComplete: (String?) -> Unit) {
-        val manager = syncManager
         val account = _accountState.value
-        val currentUserId = account.userId
-        if (manager == null || currentUserId.isNullOrBlank()) {
-            onComplete("You must be signed in to start a private conversation.")
+        if (!account.isSignedIn || account.userId.isNullOrBlank()) {
+            onComplete("برای شروع گفتگوی خصوصی ابتدا وارد حساب شوید.")
             return
         }
-
         viewModelScope.launch {
             try {
-                val ensuredUsername = manager.ensureOwnDirectoryProfile(
-                    currentUserId,
-                    account.displayName?.takeIf { it.isNotBlank() } ?: account.username ?: "Echo User"
-                )
-                if (_accountState.value.userId == currentUserId) {
-                    _accountState.value = _accountState.value.copy(username = ensuredUsername)
-                }
-                val peer = manager.findPublicUserByUsername(username)
-                    ?: throw IllegalArgumentException("No account was found for @" + username + ".")
-                require(peer.uid != currentUserId) { "You cannot start a conversation with your own account." }
-
-                val conversationId = manager.openDirectConversation(
-                    currentUserId = currentUserId,
-                    currentDisplayName = account.displayName?.takeIf { it.isNotBlank() }
-                        ?: account.username
-                        ?: "Echo User",
-                    peer = peer
-                )
+                val conversation = api.openConversation(username)
+                val peerName = conversation.peerDisplayName.ifBlank { "@" + conversation.peerUsername }
                 repository.startDirectMessage(
-                    conversationId = conversationId,
-                    peerId = peer.uid,
-                    peerName = peer.displayName.ifBlank { "@" + peer.username }
+                    conversationId = conversation.id,
+                    peerId = conversation.peerId,
+                    peerName = peerName
                 )
-                _selectedChannelId.value = conversationId
+                val existing = dao.getChannelByIdOnce(conversation.id)
+                dao.insertChannel(
+                    (existing ?: ChannelEntity(id = conversation.id)).copy(
+                        name = peerName,
+                        description = "گفتگوی خصوصی",
+                        iconName = "person",
+                        isDirectMessage = true,
+                        peerName = peerName,
+                        peerId = conversation.peerId,
+                        lastMessage = conversation.lastMessage,
+                        lastMessageTime = conversation.lastMessageTime
+                    )
+                )
+                _selectedChannelId.value = conversation.id
                 _currentMainTab.value = 0
                 _replyingTo.value = null
                 onComplete(null)
