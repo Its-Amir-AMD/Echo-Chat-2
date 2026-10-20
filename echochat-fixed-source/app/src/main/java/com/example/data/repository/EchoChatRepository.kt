@@ -43,31 +43,36 @@ class EchoChatRepository(
         channelId: String,
         content: String,
         replyToId: String? = null,
-        replyToSnippet: String? = null
+        replyToSnippet: String? = null,
+        senderId: String = "local-device",
+        senderName: String = "Echo User"
     ) {
+        val trimmedContent = content.trim()
+        require(trimmedContent.isNotEmpty()) { "Message content must not be empty." }
+        require(trimmedContent.length <= 10_000) { "Message is too long." }
         val now = System.currentTimeMillis()
         val userMsgId = UUID.randomUUID().toString()
 
         val outgoingMsg = MessageEntity(
             id = userMsgId,
             channelId = channelId,
-            senderId = "me",
-            senderName = "شما / You",
+            senderId = senderId,
+            senderName = senderName,
             senderAvatarColor = 0xFF4F46E5,
-            content = content.trim(),
+            content = trimmedContent,
             timestamp = now,
             isOutgoing = true,
-            status = "read",
+            status = "sent",
             replyToId = replyToId,
             replyToSnippet = replyToSnippet
         )
 
         dao.insertMessage(outgoingMsg)
-        dao.updateChannelLastMessage(channelId, content.trim(), now)
+        dao.updateChannelLastMessage(channelId, trimmedContent, now)
 
         // Only the assistant channel automatically responds. Human conversations must
         // never fabricate replies from other users.
-        triggerAssistantReply(channelId, content.trim(), userMsgId)
+        triggerAssistantReply(channelId, trimmedContent, userMsgId)
     }
 
     private fun triggerAssistantReply(channelId: String, userText: String, replyToId: String) {
