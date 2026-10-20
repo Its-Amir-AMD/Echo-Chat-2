@@ -10,6 +10,9 @@ import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.firestore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
@@ -350,17 +353,27 @@ class FirestoreSyncManager(
                 val ids = ownedMessages.map { it.id }
                 uploadingMessageIds.addAll(ids)
                 try {
-                    val batch = db.batch()
-                    ownedMessages.forEach { message ->
-                        batch.set(
-                            messageCollection(channelId, isDirectMessage).document(message.id),
-                            message.copy(isOutgoing = false, isSynced = true)
-                        )
+                    var retryDelayMs = INITIAL_RETRY_DELAY_MS
+                    // Keep pending messages queued and retry while this account's sync job is active.
+                    while (currentCoroutineContext().isActive) {
+                        try {
+                            val batch = db.batch()
+                            ownedMessages.forEach { message ->
+                                batch.set(
+                                    messageCollection(channelId, isDirectMessage).document(message.id),
+                                    message.copy(isOutgoing = false, isSynced = true)
+                                )
+                            }
+                            batch.commit().await()
+                            dao.markMessagesSynced(ids)
+                            break
+                        } catch (error: Exception) {
+                            // A cancelled collector exits on its next delay; ordinary network
+                            // failures back off so offline messages are eventually retried.
+                            delay(retryDelayMs)
+                            retryDelayMs = (retryDelayMs * 2).coerceAtMost(MAX_RETRY_DELAY_MS)
+                        }
                     }
-                    batch.commit().await()
-                    dao.markMessagesSynced(ids)
-                } catch (_: Exception) {
-                    // Keep messages queued for retry on a later Room/network change.
                 } finally {
                     uploadingMessageIds.removeAll(ids.toSet())
                 }
@@ -404,5 +417,7 @@ class FirestoreSyncManager(
 
     private companion object {
         const val MAX_MESSAGES_PUSHED_PER_SYNC = 500
+        const val INITIAL_RETRY_DELAY_MS = 1_000L
+        const val MAX_RETRY_DELAY_MS = 30_000L
     }
 }
