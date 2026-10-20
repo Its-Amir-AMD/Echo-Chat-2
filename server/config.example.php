@@ -2,7 +2,9 @@
 declare(strict_types=1);
 
 /*
- * Copy this file to ../config.php (one directory above public/) on the server.
+ * Copy this file to config.php beside the public/ directory on the server.
+ * If deploying public/ as a flat folder under public_html/, put config.php in
+ * the hosting account's private home directory outside the web root.
  * Never commit real database passwords or private credentials.
  */
 return [
