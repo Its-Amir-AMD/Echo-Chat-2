@@ -13,8 +13,8 @@ This folder contains a self-hosted backend for Android account login, public cha
 
 1. Create a MySQL database and a database user in the hosting control panel. Grant the user access only to this database.
 2. Import the SQL file at server/database/schema.sql using phpMyAdmin or the host's SQL importer.
-3. Copy server/config.example.php to server/config.php, one level above the public directory. Enter the actual database host, database name, username, and password. Do not commit real credentials.
-4. Upload the contents of server/public/ into a web folder such as public_html/echochat-api/. Keep config.php outside the public web root.
+3. Copy server/config.example.php to config.php and enter the actual database host, database name, username, and password. Never commit real credentials.
+4. Upload the contents of server/public/ into a web folder such as public_html/echochat-api/. Keep config.php outside the public web root. If you upload the public folder's contents into public_html/echochat-api/, place config.php in the hosting account's private home directory (usually one level above public_html). The API checks that private location. If you instead preserve the original server/public directory layout, keep config.php alongside server/public, outside the public web root. Do not leave real config credentials anywhere directly downloadable from the website.
 5. Confirm .htaccess rewriting is enabled and install a valid HTTPS certificate.
 6. Open https://YOUR_DOMAIN/echochat-api/health. The response should contain ok: true and database: connected.
 7. In EchoChat, enter https://YOUR_DOMAIN/echochat-api in the server URL field and tap Connect.
