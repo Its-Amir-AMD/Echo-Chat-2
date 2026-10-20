@@ -11,6 +11,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.UserProfileChangeRequest
 import com.google.firebase.auth.GoogleAuthProvider
+import com.google.firebase.firestore.firestore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -73,19 +74,55 @@ class FirebaseAuthManager(
     suspend fun createAccountWithEmail(
         email: String,
         password: String,
-        displayName: String
+        displayName: String,
+        username: String
     ): FirebaseUser {
         require(email.isNotBlank()) { "Enter your email address." }
         require(password.length >= 8) { "Use a password with at least 8 characters." }
+        val normalizedUsername = username.trim().lowercase(java.util.Locale.ROOT)
+        require(normalizedUsername.matches(Regex("^[a-z0-9_]{3,24}$"))) {
+            "Username must be 3–24 characters using only letters, numbers, and underscores."
+        }
+
         val user = auth.createUserWithEmailAndPassword(email.trim(), password).await().user
             ?: throw IllegalStateException("Firebase did not create the account.")
-        val name = displayName.trim()
-        if (name.isNotEmpty()) {
+        try {
+            val name = displayName.trim().ifEmpty { normalizedUsername }
             user.updateProfile(
                 UserProfileChangeRequest.Builder().setDisplayName(name).build()
             ).await()
+            reserveUsername(user, normalizedUsername, name)
+            return auth.currentUser ?: user
+        } catch (error: Exception) {
+            // Do not leave a half-registered account when a username reservation failed.
+            runCatching { user.delete().await() }
+            auth.signOut()
+            throw error
         }
-        return auth.currentUser ?: user
+    }
+
+    private suspend fun reserveUsername(user: FirebaseUser, username: String, displayName: String) {
+        val firestore = com.google.firebase.Firebase.firestore
+        val usernameRef = firestore.collection("usernames").document(username)
+        val profileRef = firestore.collection("publicUsers").document(user.uid)
+        firestore.runTransaction { transaction ->
+            val existing = transaction.get(usernameRef)
+            if (existing.exists() && existing.getString("uid") != user.uid) {
+                throw IllegalArgumentException("That username is already taken. Choose another one.")
+            }
+            transaction.set(usernameRef, mapOf("uid" to user.uid, "usernameLower" to username))
+            transaction.set(
+                profileRef,
+                mapOf(
+                    "uid" to user.uid,
+                    "username" to username,
+                    "usernameLower" to username,
+                    "displayName" to displayName,
+                    "createdAt" to System.currentTimeMillis()
+                )
+            )
+            null
+        }.await()
     }
 
     /** Send Firebase's standard password-reset email. */
