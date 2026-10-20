@@ -1,6 +1,4 @@
-CREATE DATABASE IF NOT EXISTS echochat
-  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE echochat;
+-- Create the database in your hosting control panel, select it in phpMyAdmin, then import this file.
 
 CREATE TABLE IF NOT EXISTS users (
   id VARCHAR(64) NOT NULL PRIMARY KEY,
