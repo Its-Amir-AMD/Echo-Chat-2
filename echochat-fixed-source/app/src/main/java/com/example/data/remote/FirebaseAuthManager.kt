@@ -9,6 +9,7 @@ import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.auth.UserProfileChangeRequest
 import com.google.firebase.auth.GoogleAuthProvider
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -60,6 +61,39 @@ class FirebaseAuthManager(
         awaitClose { authInstance.removeAuthStateListener(listener) }
     }.distinctUntilChanged()
 
+    /** Sign in with an existing email/password account. */
+    suspend fun signInWithEmail(email: String, password: String): FirebaseUser {
+        require(email.isNotBlank()) { "Enter your email address." }
+        require(password.isNotEmpty()) { "Enter your password." }
+        return auth.signInWithEmailAndPassword(email.trim(), password).await().user
+            ?: throw IllegalStateException("Firebase did not return a signed-in user.")
+    }
+
+    /** Create an account. Firebase must have the Email/Password provider enabled. */
+    suspend fun createAccountWithEmail(
+        email: String,
+        password: String,
+        displayName: String
+    ): FirebaseUser {
+        require(email.isNotBlank()) { "Enter your email address." }
+        require(password.length >= 8) { "Use a password with at least 8 characters." }
+        val user = auth.createUserWithEmailAndPassword(email.trim(), password).await().user
+            ?: throw IllegalStateException("Firebase did not create the account.")
+        val name = displayName.trim()
+        if (name.isNotEmpty()) {
+            user.updateProfile(
+                UserProfileChangeRequest.Builder().setDisplayName(name).build()
+            ).await()
+        }
+        return auth.currentUser ?: user
+    }
+
+    /** Send Firebase's standard password-reset email. */
+    suspend fun sendPasswordResetEmail(email: String) {
+        require(email.isNotBlank()) { "Enter your email address first." }
+        auth.sendPasswordResetEmail(email.trim()).await()
+    }
+
     /**
      * Launches the Credential Manager Google Sign-In flow and exchanges the resulting
      * ID token for a Firebase session. Returns the signed-in [FirebaseUser].
@@ -69,14 +103,15 @@ class FirebaseAuthManager(
      * fallback rather than crash.
      */
     suspend fun signInWithGoogle(context: Context): FirebaseUser {
-        require(webClientId.isNotBlank() && webClientId != DEFAULT_WEB_CLIENT_ID) {
-            "Set a real OAuth Web Client ID (from the Firebase console) before enabling Google sign-in."
+        val resolvedWebClientId = resolveWebClientId(context)
+        require(resolvedWebClientId.isNotBlank() && resolvedWebClientId != DEFAULT_WEB_CLIENT_ID) {
+            "Google sign-in is not configured. Add a valid google-services.json from your Firebase project."
         }
 
         val nonce = generateNonce()
         val googleIdOption = GetGoogleIdOption.Builder()
             .setFilterByAuthorizedAccounts(false)
-            .setServerClientId(webClientId)
+            .setServerClientId(resolvedWebClientId)
             .setNonce(nonce)
             .build()
 
@@ -100,6 +135,14 @@ class FirebaseAuthManager(
 
     fun signOut() {
         runCatching { auth.signOut() }
+    }
+
+    private fun resolveWebClientId(context: Context): String {
+        // The Google Services Gradle plugin creates this resource from google-services.json.
+        val resourceId = context.resources.getIdentifier(
+            "default_web_client_id", "string", context.packageName
+        )
+        return if (resourceId != 0) context.getString(resourceId) else webClientId
     }
 
     private fun generateNonce(): String {
