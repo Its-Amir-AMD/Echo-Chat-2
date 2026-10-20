@@ -111,7 +111,13 @@ service cloud.firestore {
     // Private conversations have exactly two distinct members and are only readable
     // by those members. Creation is allowed only if both users have a directory profile.
     match /conversations/{conversationId} {
-      allow read: if signedIn() && request.auth.uid in resource.data.memberIds;
+      // Allow an authenticated exact get of a non-existent ID so clients can determine
+      // whether a deterministic conversation already exists before creating it. No data
+      // is exposed because the document is absent. Existing documents remain member-only.
+      allow get: if signedIn()
+        && (!exists(/databases/$(database)/documents/conversations/$(conversationId))
+          || request.auth.uid in resource.data.memberIds);
+      allow list: if signedIn() && request.auth.uid in resource.data.memberIds;
 
       allow create: if signedIn()
         && request.resource.data.id == conversationId
