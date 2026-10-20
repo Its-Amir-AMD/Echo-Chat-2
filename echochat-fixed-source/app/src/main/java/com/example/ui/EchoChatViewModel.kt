@@ -95,7 +95,13 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                         }
                     } else {
                         newSyncManager.stop()
-                        _accountState.value = AccountUiState(isCloudAvailable = true, isSignedIn = false)
+                        val previous = _accountState.value
+                        _accountState.value = AccountUiState(
+                            isCloudAvailable = true,
+                            isSignedIn = false,
+                            lastError = previous.lastError,
+                            lastMessage = previous.lastMessage
+                        )
                     }
                 }
                 .launchIn(viewModelScope)
@@ -186,6 +192,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun signOut() {
+        _accountState.value = _accountState.value.copy(lastError = null, lastMessage = null)
         authManager?.signOut()
         syncManager?.stop()
     }
