@@ -26,7 +26,7 @@ import java.util.UUID
         StoryEntity::class,
         CommentEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class EchoDatabase : RoomDatabase() {
@@ -122,6 +122,13 @@ abstract class EchoDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Track Firestore upload state independently of message delivery/read receipts.
+                db.execSQL("ALTER TABLE messages ADD COLUMN isSynced INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         @Volatile
         private var INSTANCE: EchoDatabase? = null
 
@@ -142,7 +149,7 @@ abstract class EchoDatabase : RoomDatabase() {
                             }
                         }
                     })
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     .build()
                 INSTANCE = instance
                 instance
