@@ -522,7 +522,6 @@ fun MainScreen(
             onToggleTheme = { viewModel.toggleTheme() },
             sheetState = sheetState,
             accountState = accountState,
-            onSignInWithGoogle = { viewModel.signInWithGoogle(localContext) },
             onSignOut = { viewModel.signOut() }
         )
     }
