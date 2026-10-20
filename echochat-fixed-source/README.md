@@ -16,7 +16,7 @@ EchoChat is a native Android project built with Kotlin, Jetpack Compose, Materia
 - Non-destructive Room migrations for the schema versions defined in this project.
 - Firebase AI Logic integration for the Echo assistant, with a visible error message when Firebase AI is not configured or a request fails.
 - Optional Firebase Authentication (Google sign-in) and a Firestore sync bridge for channels and messages — see `app/FIREBASE_SETUP.md`. Entirely inert, with no UI shown, until a real Firebase project is linked.
-- GitHub Actions workflow for unit tests, lint, and a debug APK build.
+- GitHub Actions workflow for unit tests, lint, and a debug APK build, plus an optional signed release build once signing secrets are configured (see "Continuous integration and downloading a built APK" below).
 
 ## Important scope and deployment note
 
@@ -52,6 +52,40 @@ gradlew.bat assembleDebug
 The debug APK is generated at:
 
 `app/build/outputs/apk/debug/app-debug.apk`
+
+## Continuous integration and downloading a built APK
+
+`.github/workflows/android.yml` runs on every push to `main`, `fix/**`, and
+`feat/**`, and on every pull request:
+
+- **`verify`** always runs: unit tests, lint, and an unsigned debug build. The
+  resulting `EchoChat-debug-apk` artifact can be downloaded from the workflow
+  run's **Summary** page (under *Artifacts*) and installed directly on a
+  device with `adb install app-debug.apk` — no signing key needed. This is
+  the fastest way to get an installable APK without setting up a local
+  Android SDK.
+- **`release`** only runs once real signing secrets are added to the
+  repository (it is skipped, not failed, otherwise). To enable it:
+  1. Generate an upload keystore if you don't already have one:
+     ```bash
+     keytool -genkeypair -v -keystore my-upload-key.jks -alias upload \
+       -keyalg RSA -keysize 2048 -validity 10000
+     ```
+  2. Base64-encode it: `base64 -w0 my-upload-key.jks > keystore.b64`
+     (`base64 my-upload-key.jks | tr -d '\n' > keystore.b64` on macOS).
+  3. In the repository's **Settings → Secrets and variables → Actions**, add:
+     - `ENCODED_KEYSTORE` — the contents of `keystore.b64`
+     - `STORE_PASSWORD` — the keystore password you chose above
+     - `KEY_PASSWORD` — the key password you chose above
+  4. Push to `main` (or run the workflow manually). The signed
+     `EchoChat-release-apk` artifact will appear alongside the debug build.
+
+  Keep the `.jks` file and these passwords private — never commit them to
+  the repository (`*.jks` and `*.keystore` are already gitignored). This is
+  the same `signingConfigs["release"]` wiring already present in
+  `app/build.gradle.kts` for AI Studio; the workflow only supplies the three
+  environment variables it already expects (`KEYSTORE_PATH`,
+  `STORE_PASSWORD`, `KEY_PASSWORD`).
 
 ## Configure Firebase AI Logic
 

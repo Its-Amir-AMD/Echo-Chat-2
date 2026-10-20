@@ -1,65 +1,86 @@
-# نحوه‌ی اعمال این اصلاحات روی ریپازیتوری خودتان
+# نحوه‌ی اعمال این اصلاحات روی ریپازیتوری خودتان و گرفتن APK
 
 من نمی‌توانم مستقیماً به حساب گیت‌هاب شما push کنم (به اعتبارنامه‌ی شما دسترسی
-ندارم)، پس سه فایل برایتان آماده کردم. **روش اول (bundle) را توصیه می‌کنم** چون
-تاریخچه‌ی commit را هم حفظ می‌کند.
+ندارم) و نمی‌توانم در این محیط یک APK واقعی بسازم (دسترسی شبکه به سرورهای
+Android SDK/Gradle ندارم). راه‌حل: یک GitHub Actions workflow آماده کرده‌ام که
+وقتی خودتان push کنید، گیت‌هاب به‌صورت خودکار APK را می‌سازد.
 
-## روش ۱ (توصیه‌شده): اعمال git bundle
+## مرحله‌ی ۱: اعمال تغییرات (یکی از این سه روش)
 
-این روش کل commit جدید را با پیام توضیحی کامل، روی شاخه‌ی `main` شما اعمال
-می‌کند.
+### روش ۱ (توصیه‌شده): git bundle
 
 ```bash
-# 1) ریپازیتوری خودتان را کلون/باز کنید (اگر از قبل ندارید)
 git clone https://github.com/Its-Amir-AMD/Echochat_amir.git
 cd Echochat_amir
-
-# 2) فایل echochat-fixes.bundle را کنار این پوشه قرار دهید، سپس:
-git fetch echochat-fixes.bundle main:fixes-branch
-
-# 3) تغییرات را مرور کنید (اختیاری اما پیشنهاد می‌شود)
-git log fixes-branch -1
-git diff main fixes-branch
-
-# 4) اگر راضی بودید، merge یا rebase کنید روی main
+git fetch /path/to/echochat-fixes.bundle main:fixes-branch
+git log fixes-branch -5          # مرور تغییرات (اختیاری)
 git checkout main
 git merge fixes-branch
 git push origin main
 ```
 
-## روش ۲: اعمال patch
-
-اگر ترجیح می‌دهید فقط diff را به‌صورت یک patch روی برنچ فعلی‌تان اعمال کنید:
+### روش ۲: patch
 
 ```bash
 cd Echochat_amir
-git am 0001-echochat-fixes.patch
+git am /path/to/echochat-fixes.patch
 git push origin main
 ```
 
-(اگر `git am` به خاطر conflict شکست خورد، `git apply 0001-echochat-fixes.patch`
-را امتحان کنید و بعد خودتان commit بگیرید.)
+### روش ۳: جایگزینی دستی (بدون git)
 
-## روش ۳: جایگزینی دستی فایل‌ها (ساده‌ترین، بدون git)
-
-اگر با git راحت نیستید، فایل `echochat-fixed-source.zip` را دانلود و از حالت
-فشرده خارج کنید، و محتوای آن را روی پوشه‌ی پروژه‌ی فعلی‌تان کپی/جایگزین کنید
-(فقط فایل‌هایی که نام مشابه دارند override می‌شوند). سپس:
+فایل `echochat-fixed-source.zip` را از حالت فشرده خارج کنید، محتوایش را روی
+پوشه‌ی پروژه‌ی فعلی‌تان کپی/جایگزین کنید، سپس:
 
 ```bash
 git add -A
-git commit -m "Fix responsive bugs, localization, add optional Firebase sync"
+git commit -m "Fix responsive bugs, localization, CI, optional Firebase sync"
 git push origin main
 ```
 
-## قبل از push: این‌ها را حتماً بخوانید
+## مرحله‌ی ۲: گرفتن APK از GitHub Actions (خودکار، بعد از push)
 
-- **من این پروژه را کامپایل نکرده‌ام** — محیط من به Android SDK یا سرورهای
-  Gradle/Google Maven دسترسی شبکه‌ای ندارد. تمام ویرایش‌ها با مرور دستی دقیق
-  syntax و امضای توابع انجام شده، اما توصیه‌ی جدی می‌کنم **قبل از push نهایی،
-  یک‌بار در Android Studio خودتان Sync و Build بگیرید** تا مطمئن شوید.
+بعد از `git push origin main`:
+
+1. به صفحه‌ی ریپازیتوری‌تان در گیت‌هاب بروید → تب **Actions**.
+2. یک workflow run به اسم «Android CI» می‌بینید که به‌طور خودکار شروع شده.
+   صبر کنید تا کامل شود (معمولاً ۵ تا ۱۰ دقیقه — این‌بار واقعاً روی سرورهای
+   گیت‌هاب build می‌شود، نه در محیط من، پس به تمام سرورهای لازم دسترسی دارد).
+3. وقتی سبز شد (✅)، روی همان run کلیک کنید. پایین صفحه بخش **Artifacts** را
+   می‌بینید:
+   - **`EchoChat-debug-apk`** — همیشه ساخته می‌شود، بدون نیاز به هیچ تنظیم
+     اضافه. این را دانلود، از حالت zip خارج و مستقیماً روی گوشی نصب کنید
+     (`adb install app-debug.apk`، یا فایل apk را روی گوشی بفرستید و نصب
+     کنید — باید اجازه‌ی "نصب از منابع ناشناس" را بدهید).
+   - **`EchoChat-release-apk`** — فقط اگر مراحل زیر را هم انجام داده باشید
+     ظاهر می‌شود.
+
+### برای گرفتن نسخه‌ی release امضاشده (اختیاری، برای انتشار در Google Play)
+
+```bash
+keytool -genkeypair -v -keystore my-upload-key.jks -alias upload \
+  -keyalg RSA -keysize 2048 -validity 10000
+base64 -w0 my-upload-key.jks > keystore.b64   # در مک: base64 my-upload-key.jks | tr -d '\n' > keystore.b64
+```
+
+سپس در گیت‌هاب: **Settings → Secrets and variables → Actions → New repository secret**
+و این سه مورد را اضافه کنید:
+- `ENCODED_KEYSTORE` ← محتوای `keystore.b64`
+- `STORE_PASSWORD` ← رمزی که برای keystore انتخاب کردید
+- `KEY_PASSWORD` ← رمزی که برای کلید انتخاب کردید
+
+بعد یک push جدید بزنید (یا از تب Actions دکمه‌ی "Run workflow" را بزنید).
+این‌بار artifact دوم (`EchoChat-release-apk`) هم ساخته می‌شود — این نسخه
+امضاشده و قابل آپلود در Google Play است.
+
+**فایل `.jks` و رمزها را جایی امن نگه دارید و هرگز commit نکنید** — هر
+آپدیت بعدی اپ باید با همین کلید امضا شود.
+
+## نکات مهم قبل از انتشار نهایی
+
 - بک‌اند Firebase (`FirestoreSyncManager`, `FirebaseAuthManager`) کاملاً
-  **اختیاری و بی‌اثر** است تا وقتی `google-services.json` واقعی وصل نکنید —
-  اپ دقیقاً مثل قبل در حالت محلی کار می‌کند. راهنمای کامل فعال‌سازی در
-  `app/FIREBASE_SETUP.md` داخل خود پروژه هست.
-- خلاصه‌ی کامل همه‌ی تغییرات در پیام commit (`git log -1`) نوشته شده است.
+  اختیاری و بی‌اثر است تا `google-services.json` واقعی وصل نکنید. راهنمای
+  کامل در `app/FIREBASE_SETUP.md` داخل پروژه.
+- خلاصه‌ی کامل همه‌ی تغییرات کد در پیام‌های commit است (`git log`).
+- توصیه می‌کنم حتی بعد از دیدن ✅ در Actions، یک‌بار APK دیباگ را روی گوشی
+  واقعی خودتان نصب و چند دقیقه با آن کار کنید قبل از رفتن به سراغ release.
