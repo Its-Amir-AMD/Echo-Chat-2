@@ -76,7 +76,15 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                         val previousUserId = sessionPrefs.getString("last_active_uid", null)
                         if (previousUserId != user.uid) {
                             try {
-                                newSyncManager.clearLocalAccountScopedCache()
+                                if (previousUserId == null) {
+                                    // Keep locally authored profile/feed content on first sign-in,
+                                    // but never show old demo/local-only direct conversations.
+                                    newSyncManager.clearUnbackedPrivateConversations()
+                                } else {
+                                    // A real account switch must not expose the previous user's
+                                    // cached private messages or account-local social content.
+                                    newSyncManager.clearLocalAccountScopedCache()
+                                }
                                 sessionPrefs.edit().putString("last_active_uid", user.uid).apply()
                             } catch (_: Exception) {
                                 _accountState.value = AccountUiState(
