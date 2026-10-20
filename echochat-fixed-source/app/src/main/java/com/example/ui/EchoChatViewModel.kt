@@ -447,7 +447,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
             try {
                 val ensuredUsername = manager.ensureOwnDirectoryProfile(
                     currentUserId,
-                    account.displayName?.takeIf { it.isNotBlank() } ?: account.email ?: "Echo User"
+                    account.displayName?.takeIf { it.isNotBlank() } ?: account.username ?: "Echo User"
                 )
                 if (_accountState.value.userId == currentUserId) {
                     _accountState.value = _accountState.value.copy(username = ensuredUsername)
@@ -459,7 +459,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 val conversationId = manager.openDirectConversation(
                     currentUserId = currentUserId,
                     currentDisplayName = account.displayName?.takeIf { it.isNotBlank() }
-                        ?: account.email
+                        ?: account.username
                         ?: "Echo User",
                     peer = peer
                 )
