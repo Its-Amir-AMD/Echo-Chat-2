@@ -19,7 +19,7 @@ class EchoAiService {
         }
 
         val model = FirebaseAI.getInstance(
-            Firebase.app,
+                com.google.firebase.FirebaseApp.getInstance(),
             GenerativeBackend.googleAI()
         ).generativeModel(MODEL_NAME)
         val response = model.generateContent(
