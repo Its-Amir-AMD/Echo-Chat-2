@@ -258,7 +258,6 @@ fun ProfileAndSettingsSheet(
     onToggleTheme: () -> Unit,
     sheetState: SheetState,
     accountState: com.example.ui.AccountUiState = com.example.ui.AccountUiState(),
-    onSignInWithGoogle: () -> Unit = {},
     onSignOut: () -> Unit = {}
 ) {
     var displayName by remember(profile) { mutableStateOf(profile?.displayName ?: "کاربر اکو") }
@@ -421,13 +420,6 @@ fun ProfileAndSettingsSheet(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(EchoStrings.get("cloud_account_sign_out", currentLanguage))
-                        }
-                    } else {
-                        OutlinedButton(
-                            onClick = onSignInWithGoogle,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(EchoStrings.get("cloud_account_sign_in", currentLanguage))
                         }
                     }
                     accountState.lastError?.let { error ->
