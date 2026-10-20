@@ -123,6 +123,10 @@ interface EchoChatDao {
     @Query("DELETE FROM channels WHERE isDirectMessage = 1 AND id != 'bot_echo'")
     suspend fun deleteAllPrivateChannelsExceptLocalAssistant()
 
+    // Public rooms come from the server API; hide stale local-only demo/custom rooms.
+    @Query("DELETE FROM channels WHERE isDirectMessage = 0 AND id != 'bot_echo' AND id NOT IN (:remoteRoomIds)")
+    suspend fun deletePublicChannelsNotInIds(remoteRoomIds: List<String>)
+
     @Query("DELETE FROM post_comments")
     suspend fun deleteAllComments()
 
