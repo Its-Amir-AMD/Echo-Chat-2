@@ -241,7 +241,12 @@ try {
     }
 
     if ($method === 'GET' && $path === '/rooms') {
-        $stmt = $db->query('SELECT id, name, description, icon_name FROM rooms WHERE is_active = 1 ORDER BY id ASC');
+        $stmt = $db->query(
+            'SELECT r.id, r.name, r.description, r.icon_name,
+                (SELECT m.content FROM messages m WHERE m.room_id = r.id ORDER BY m.created_at_ms DESC, m.id DESC LIMIT 1) AS last_message,
+                (SELECT m.created_at_ms FROM messages m WHERE m.room_id = r.id ORDER BY m.created_at_ms DESC, m.id DESC LIMIT 1) AS last_message_time
+             FROM rooms r WHERE r.is_active = 1 ORDER BY r.id ASC'
+        );
         $rooms = [];
         foreach ($stmt->fetchAll() as $room) {
             $rooms[] = [
@@ -250,8 +255,8 @@ try {
                 'description' => (string)$room['description'],
                 'icon_name' => (string)$room['icon_name'],
                 'is_direct_message' => false,
-                'last_message' => '',
-                'last_message_time' => 0,
+                'last_message' => (string)($room['last_message'] ?? ''),
+                'last_message_time' => (int)($room['last_message_time'] ?? 0),
                 'created_at' => 0,
             ];
         }
