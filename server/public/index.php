@@ -134,8 +134,17 @@ function conversation_public(PDO $db, string $conversationId, string $userId): a
 }
 
 try {
-    $configPath = dirname(__DIR__) . '/config.php';
-    if (!is_file($configPath)) fail(503, 'Server is not configured. Copy config.example.php to server/config.php and enter database credentials.');
+    // Works both when public/ is the document root and when its contents are
+    // deployed into a subfolder such as public_html/echochat-api/.
+    $configCandidates = [
+        dirname(__DIR__) . '/config.php',
+        dirname(__DIR__, 2) . '/config.php',
+    ];
+    $configPath = '';
+    foreach ($configCandidates as $candidate) {
+        if (is_file($candidate)) { $configPath = $candidate; break; }
+    }
+    if ($configPath === '') fail(503, 'Server is not configured. Copy config.example.php to a private config.php outside the public web root.');
     $config = require $configPath;
     if (!is_array($config)) fail(503, 'Server configuration is invalid.');
     $dbHost = (string)($config['db_host'] ?? 'localhost');
