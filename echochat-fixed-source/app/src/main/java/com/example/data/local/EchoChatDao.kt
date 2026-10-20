@@ -48,6 +48,10 @@ interface EchoChatDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertMessages(messages: List<MessageEntity>)
 
+    /** Replace local copies when a newer remote message snapshot arrives. */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertMessages(messages: List<MessageEntity>)
+
     @Query("DELETE FROM messages WHERE id = :messageId")
     suspend fun deleteMessageById(messageId: String)
 
