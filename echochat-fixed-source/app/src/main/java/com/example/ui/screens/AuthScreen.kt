@@ -242,12 +242,6 @@ fun AuthScreen(
                         }
 
                         TextButton(
-                            onClick = { viewModel.sendPasswordResetEmail(email) },
-                            enabled = !accountState.isBusy && email.contains("@")
-                        ) {
-                            Text(if (isPersian) "فراموشی رمز عبور" else "Forgot password?")
-                        }
-                        TextButton(
                             onClick = {
                                 registerMode = !registerMode
                                 password = ""
