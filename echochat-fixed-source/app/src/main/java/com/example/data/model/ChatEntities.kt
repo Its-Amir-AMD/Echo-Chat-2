@@ -37,7 +37,9 @@ data class MessageEntity(
     val status: String = "read", // "sent", "delivered", "read"
     val replyToId: String? = null,
     val replyToSnippet: String? = null,
-    val reaction: String? = null
+    val reaction: String? = null,
+    // Local-only queue state. True once Firestore has acknowledged this message.
+    val isSynced: Boolean = false
 )
 
 @Entity(tableName = "user_profile")
