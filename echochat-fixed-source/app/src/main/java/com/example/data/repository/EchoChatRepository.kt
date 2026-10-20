@@ -46,7 +46,7 @@ class EchoChatRepository(
         replyToSnippet: String? = null,
         senderId: String = "local-device",
         senderName: String = "Echo User"
-    ) {
+    ): String {
         val trimmedContent = content.trim()
         require(trimmedContent.isNotEmpty()) { "Message content must not be empty." }
         require(trimmedContent.length <= 10_000) { "Message is too long." }
@@ -73,6 +73,7 @@ class EchoChatRepository(
         // Only the assistant channel automatically responds. Human conversations must
         // never fabricate replies from other users.
         triggerAssistantReply(channelId, trimmedContent, userMsgId)
+        return userMsgId
     }
 
     private fun triggerAssistantReply(channelId: String, userText: String, replyToId: String) {
