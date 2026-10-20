@@ -1,6 +1,7 @@
 package com.example.data.model
 
 import androidx.room.Entity
+import androidx.room.ColumnInfo
 import androidx.room.PrimaryKey
 import androidx.room.Index
 
@@ -39,7 +40,7 @@ data class MessageEntity(
     val replyToSnippet: String? = null,
     val reaction: String? = null,
     // Local-only queue state. True once Firestore has acknowledged this message.
-    val isSynced: Boolean = false
+    @ColumnInfo(defaultValue = "0") val isSynced: Boolean = false
 )
 
 @Entity(tableName = "user_profile")
