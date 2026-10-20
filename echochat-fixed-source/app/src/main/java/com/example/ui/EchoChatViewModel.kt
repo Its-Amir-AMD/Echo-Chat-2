@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
 import com.example.data.local.EchoChatDao
 import com.example.data.remote.ApiUser
 import com.example.data.remote.PhpApiClient
@@ -230,6 +231,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         val rooms = api.getRooms()
         val conversations = api.getConversations()
         val channelIds = linkedSetOf<String>()
+        if (rooms.isNotEmpty()) dao.deletePublicChannelsNotInIds(rooms.map { it.id })
 
         for (room in rooms) {
             val existing = dao.getChannelByIdOnce(room.id)
@@ -241,8 +243,8 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     iconName = room.iconName,
                     isDirectMessage = false,
                     unreadCount = existing?.unreadCount ?: 0,
-                    lastMessage = room.lastMessage.ifBlank { existing?.lastMessage.orEmpty() },
-                    lastMessageTime = if (room.lastMessageTime > 0) room.lastMessageTime else (existing?.lastMessageTime ?: 0L),
+                    lastMessage = room.lastMessage,
+                    lastMessageTime = room.lastMessageTime,
                     createdAt = existing?.createdAt ?: 0L
                 )
             )
