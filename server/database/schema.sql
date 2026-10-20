@@ -75,6 +75,6 @@ CREATE TABLE IF NOT EXISTS messages (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT IGNORE INTO rooms (id, name, description, icon_name) VALUES
-  ('general', 'عمومی', 'گفتگوی عمومی اعضای EchoChat', 'forum'),
-  ('technology', 'تکنولوژی', 'گفتگو درباره فناوری و برنامه‌نویسی', 'code'),
-  ('help', 'پرسش و پاسخ', 'کمک گرفتن از اعضای دیگر', 'help');
+  ('general', 'گفتگوی عمومی / General', 'بحث و گفتگو پیرامون موضوعات مختلف', 'forum'),
+  ('tech', 'توسعه و فناوری / Tech Talk', 'برنامه‌نویسی اندروید، کاتلین و جت‌پک کامپوز', 'code'),
+  ('design', 'طراحی و رابط کاربری / UI & UX', 'اصول طراحی، رنگ‌ها و تجربه کاربری مدرن', 'palette');
