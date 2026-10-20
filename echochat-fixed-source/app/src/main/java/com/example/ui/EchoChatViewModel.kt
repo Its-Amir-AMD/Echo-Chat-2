@@ -631,10 +631,8 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
 /**
  * UI-facing snapshot of cloud account state.
  *
- * [isCloudAvailable] is false whenever no Firebase project is linked (no
- * google-services.json, or Firebase failed to initialize) — in that case the
- * profile/settings screen should hide sign-in controls entirely rather than show a
- * button that cannot work. See app/FIREBASE_SETUP.md.
+ * isCloudAvailable indicates whether the self-hosted PHP API URL has been tested.
+ * Chat authentication and message synchronization do not require a Firebase project.
  */
 data class AccountUiState(
     val isCloudAvailable: Boolean = false,
