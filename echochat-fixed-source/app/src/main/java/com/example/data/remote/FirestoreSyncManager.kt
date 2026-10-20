@@ -44,6 +44,19 @@ class FirestoreSyncManager(
     private val remoteConversations = java.util.concurrent.ConcurrentHashMap<String, DirectConversationDocument>()
     private val uploadingMessageIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
+    /**
+     * Erases device-local private/social state before another account is shown on this
+     * device. Public room history is intentionally retained and refreshed from the cloud.
+     */
+    suspend fun clearLocalAccountScopedCache() {
+        dao.deleteAllDirectMessages()
+        dao.deleteAllPrivateChannelsExceptLocalAssistant()
+        dao.deleteAllComments()
+        dao.deleteAllPosts()
+        dao.deleteAllStories()
+        dao.deleteAllProfiles()
+    }
+
     /** Start the live cloud listeners for the signed-in account. */
     fun start(userId: String, displayName: String?) {
         require(userId.isNotBlank()) { "A signed-in user id is required to start sync." }
