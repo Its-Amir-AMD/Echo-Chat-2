@@ -489,9 +489,11 @@ fun MainScreen(
         StartDirectMessageDialog(
             language = currentLanguage,
             onDismiss = { showStartDmDialog = false },
-            onStartChat = { peerName ->
-                viewModel.startDirectMessage(peerName)
-                showStartDmDialog = false
+            onStartChat = { username, onComplete ->
+                viewModel.startDirectMessage(username) { error ->
+                    if (error == null) isViewingChatRoomOnCompact = true
+                    onComplete(error)
+                }
             }
         )
     }
