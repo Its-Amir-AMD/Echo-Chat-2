@@ -54,6 +54,8 @@ class FirestoreSyncManager(
             .catch { /* Local cache stays available if the network is temporarily unavailable. */ }
             .onEach { channels ->
                 channels.forEach { channel ->
+                    // Local-only assistant/legacy DM channels have no remote peer membership.
+                    if (channel.isDirectMessage && channel.peerId.isBlank()) return@forEach
                     if (channel.isDirectMessage) {
                         pushConversationPreview(channel)
                     } else {
@@ -239,6 +241,9 @@ class FirestoreSyncManager(
         val confirmedMembers = confirmed.get("memberIds") as? List<*>
         require(confirmed.exists() && confirmedMembers.orEmpty().containsAll(memberIds)) {
             "The private conversation could not be created."
+        }
+        confirmed.toObject(DirectConversationDocument::class.java)?.let {
+            remoteConversations[conversationId] = it
         }
         return conversationId
     }
