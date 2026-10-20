@@ -55,6 +55,11 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         isFirebaseConfigured = runCatching { FirebaseApp.getApps(application).isNotEmpty() }
             .getOrDefault(false)
 
+        // Avoid briefly exposing the local/demo UI while Firebase restores a saved session.
+        if (isFirebaseConfigured) {
+            _accountState.value = AccountUiState(isCloudAvailable = true, isBusy = true)
+        }
+
         if (isFirebaseConfigured) {
             val newAuthManager = FirebaseAuthManager()
             val newSyncManager = FirestoreSyncManager(database.chatDao(), viewModelScope)
@@ -68,8 +73,10 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                         _accountState.value = AccountUiState(
                             isCloudAvailable = true,
                             isSignedIn = true,
+                            userId = user.uid,
                             displayName = user.displayName,
-                            email = user.email
+                            email = user.email,
+                            isBusy = false
                         )
                     } else {
                         newSyncManager.stop()
@@ -84,19 +91,79 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    /** Starts the Google sign-in flow. No-ops with a friendly error when Firebase isn't linked. */
+    /** Starts Google sign-in. The Web client ID is read from google-services.json. */
     fun signInWithGoogle(context: android.content.Context) {
         val manager = authManager ?: run {
             _accountState.value = _accountState.value.copy(
-                lastError = "Cloud sync is not configured for this build."
+                isBusy = false,
+                lastError = "Cloud authentication is not configured for this build."
             )
             return
         }
+        _accountState.value = _accountState.value.copy(isBusy = true, lastError = null, lastMessage = null)
         viewModelScope.launch {
             runCatching { manager.signInWithGoogle(context) }
                 .onFailure { e ->
                     _accountState.value = _accountState.value.copy(
+                        isBusy = false,
                         lastError = e.message ?: "Google sign-in failed."
+                    )
+                }
+        }
+    }
+
+    fun signInWithEmail(email: String, password: String) {
+        val manager = authManager ?: run {
+            _accountState.value = _accountState.value.copy(lastError = "Firebase is not configured.")
+            return
+        }
+        _accountState.value = _accountState.value.copy(isBusy = true, lastError = null, lastMessage = null)
+        viewModelScope.launch {
+            runCatching { manager.signInWithEmail(email, password) }
+                .onFailure { e ->
+                    _accountState.value = _accountState.value.copy(
+                        isBusy = false,
+                        lastError = e.message ?: "Sign-in failed."
+                    )
+                }
+        }
+    }
+
+    fun createAccountWithEmail(email: String, password: String, displayName: String) {
+        val manager = authManager ?: run {
+            _accountState.value = _accountState.value.copy(lastError = "Firebase is not configured.")
+            return
+        }
+        _accountState.value = _accountState.value.copy(isBusy = true, lastError = null, lastMessage = null)
+        viewModelScope.launch {
+            runCatching { manager.createAccountWithEmail(email, password, displayName) }
+                .onFailure { e ->
+                    _accountState.value = _accountState.value.copy(
+                        isBusy = false,
+                        lastError = e.message ?: "Account creation failed."
+                    )
+                }
+        }
+    }
+
+    fun sendPasswordResetEmail(email: String) {
+        val manager = authManager ?: run {
+            _accountState.value = _accountState.value.copy(lastError = "Firebase is not configured.")
+            return
+        }
+        _accountState.value = _accountState.value.copy(isBusy = true, lastError = null, lastMessage = null)
+        viewModelScope.launch {
+            runCatching { manager.sendPasswordResetEmail(email) }
+                .onSuccess {
+                    _accountState.value = _accountState.value.copy(
+                        isBusy = false,
+                        lastMessage = "If this email is registered, a password-reset message has been sent."
+                    )
+                }
+                .onFailure { e ->
+                    _accountState.value = _accountState.value.copy(
+                        isBusy = false,
+                        lastError = e.message ?: "Password reset failed."
                     )
                 }
         }
@@ -276,6 +343,8 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 content = content,
                 replyToId = reply?.id,
                 replyToSnippet = reply?.content?.take(40)
+                ,senderId = _accountState.value.userId ?: "local-device"
+                ,senderName = _accountState.value.displayName?.takeIf { it.isNotBlank() } ?: "Echo User"
             )
             _replyingTo.value = null
         }
@@ -394,7 +463,10 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
 data class AccountUiState(
     val isCloudAvailable: Boolean = false,
     val isSignedIn: Boolean = false,
+    val userId: String? = null,
     val displayName: String? = null,
     val email: String? = null,
-    val lastError: String? = null
+    val isBusy: Boolean = false,
+    val lastError: String? = null,
+    val lastMessage: String? = null
 )
