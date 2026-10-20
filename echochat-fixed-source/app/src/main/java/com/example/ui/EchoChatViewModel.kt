@@ -69,6 +69,26 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 .catch { /* Treat any auth plumbing failure as signed-out, never crash the UI. */ }
                 .onEach { user ->
                     if (user != null) {
+                        val sessionPrefs = application.getSharedPreferences(
+                            "echochat_account_cache",
+                            android.content.Context.MODE_PRIVATE
+                        )
+                        val previousUserId = sessionPrefs.getString("last_active_uid", null)
+                        if (previousUserId != user.uid) {
+                            try {
+                                newSyncManager.clearLocalAccountScopedCache()
+                                sessionPrefs.edit().putString("last_active_uid", user.uid).apply()
+                            } catch (_: Exception) {
+                                _accountState.value = AccountUiState(
+                                    isCloudAvailable = true,
+                                    isSignedIn = false,
+                                    lastError = "Could not safely switch account data on this device. Sign out and retry."
+                                )
+                                newAuthManager.signOut()
+                                return@onEach
+                            }
+                        }
+
                         newSyncManager.start(user.uid, user.displayName)
                         val registrationPending = newAuthManager.isRegistrationInProgress
                         _accountState.value = AccountUiState(
