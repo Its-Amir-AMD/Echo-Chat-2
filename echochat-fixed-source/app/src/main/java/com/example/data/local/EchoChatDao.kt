@@ -52,6 +52,9 @@ interface EchoChatDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertMessages(messages: List<MessageEntity>)
 
+    @Query("UPDATE messages SET isSynced = 1 WHERE id IN (:messageIds)")
+    suspend fun markMessagesSynced(messageIds: List<String>)
+
     @Query("DELETE FROM messages WHERE id = :messageId")
     suspend fun deleteMessageById(messageId: String)
 
