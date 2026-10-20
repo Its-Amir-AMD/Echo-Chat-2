@@ -1,7 +1,5 @@
 package com.example.ui.screens
 
-import android.content.Intent
-import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,7 +16,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -30,7 +27,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -49,12 +45,12 @@ fun AuthScreen(
     cloudAvailable: Boolean
 ) {
     val isPersian = language == AppLanguage.PERSIAN
-    val context = LocalContext.current
     var registerMode by remember { mutableStateOf(false) }
     var displayName by remember { mutableStateOf("") }
     var username by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var serverUrl by remember { mutableStateOf(viewModel.currentServerUrl) }
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Box(
@@ -80,29 +76,64 @@ fun AuthScreen(
 
                     if (!cloudAvailable) {
                         Text(
-                            text = if (isPersian) "اتصال سرور هنوز تنظیم نشده است" else "Cloud backend is not configured",
+                            text = if (isPersian) "اتصال به سرور EchoChat" else "Connect to EchoChat server",
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
                             text = if (isPersian)
-                                "برای جلوگیری از نمایش اطلاعات نمایشی، ورود تا زمان اتصال Firebase غیرفعال است. یک پروژهٔ Firebase بسازید، ورود ایمیل/رمز عبور و Firestore را فعال کنید و فایل google-services.json را در پوشهٔ app قرار دهید."
+                                "برای ورود و گفتگو، آدرس بک‌اند PHP/MySQL خودت را وارد کن. این نسخه به Firebase نیاز ندارد."
                             else
-                                "Sign-in is disabled until Firebase is connected, so the app will not present local demo data as a real messenger. Create a Firebase project, enable Email/Password authentication and Cloud Firestore, then place google-services.json in the app module.",
+                                "Enter your self-hosted PHP/MySQL API URL to sign in and chat. This version does not require Firebase.",
                             style = MaterialTheme.typography.bodyMedium
                         )
-                        Button(
-                            onClick = {
-                                context.startActivity(
-                                    Intent(Intent.ACTION_VIEW, Uri.parse("https://console.firebase.google.com/"))
-                                )
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(if (isPersian) "باز کردن Firebase Console" else "Open Firebase Console")
-                        }
+                        OutlinedTextField(
+                            value = serverUrl,
+                            onValueChange = { serverUrl = it.trim() },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text(if (isPersian) "آدرس سرور (HTTPS)" else "Server URL (HTTPS)") },
+                            placeholder = { Text("https://example.com/echochat-api") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Uri,
+                                imeAction = ImeAction.Done
+                            )
+                        )
                         Text(
-                            text = if (isPersian) "پس از تنظیم Firebase، پروژه را دوباره Build کنید." else "After Firebase setup, rebuild the app.",
+                            text = if (isPersian)
+                                "آدرس باید به پوشه‌ای برسد که index.php داخل آن است؛ انتهای آدرس /health را دستی اضافه نکن."
+                            else
+                                "Use the folder containing index.php; do not append /health to the URL.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        if (!accountState.lastError.isNullOrBlank()) {
+                            Text(
+                                text = accountState.lastError.orEmpty(),
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        if (!accountState.lastMessage.isNullOrBlank()) {
+                            Text(
+                                text = accountState.lastMessage.orEmpty(),
+                                color = MaterialTheme.colorScheme.primary,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        Button(
+                            onClick = { viewModel.configureServer(serverUrl) },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !accountState.isBusy && serverUrl.isNotBlank()
+                        ) {
+                            Text(if (isPersian) "بررسی اتصال و ذخیره" else "Test connection and save")
+                        }
+                        if (accountState.isBusy) CircularProgressIndicator()
+                        Text(
+                            text = if (isPersian)
+                                "ابتدا بک‌اند پوشهٔ server را روی هاست HTTPS نصب کن؛ راهنما در README مخزن است."
+                            else
+                                "Deploy the server folder to HTTPS hosting first; the repository README has the steps.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodySmall
                         )
@@ -208,14 +239,6 @@ fun AuthScreen(
                                     if (isPersian) "ورود" else "Sign in"
                                 }
                             )
-                        }
-
-                        OutlinedButton(
-                            onClick = { viewModel.signInWithGoogle(context) },
-                            modifier = Modifier.fillMaxWidth(),
-                            enabled = !accountState.isBusy
-                        ) {
-                            Text(if (isPersian) "ورود با حساب Google" else "Continue with Google")
                         }
 
                         TextButton(
