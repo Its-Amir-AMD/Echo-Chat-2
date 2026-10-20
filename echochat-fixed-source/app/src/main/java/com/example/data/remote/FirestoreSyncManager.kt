@@ -284,6 +284,21 @@ class FirestoreSyncManager(
                 channel.lastMessage != remote.lastMessage &&
                 channel.lastMessageTime > remote.lastMessageTime
             if (!hasNewerMessage) return
+
+            // Rules permit only preview fields to change on an existing public channel.
+            runCatching {
+                db.collection("channels").document(channel.id).update(
+                    mapOf(
+                        "lastMessage" to channel.lastMessage.take(10_000),
+                        "lastMessageTime" to channel.lastMessageTime
+                    )
+                ).await()
+                remoteChannels[channel.id] = remote.copy(
+                    lastMessage = channel.lastMessage.take(10_000),
+                    lastMessageTime = channel.lastMessageTime
+                )
+            }
+            return
         }
 
         runCatching {
