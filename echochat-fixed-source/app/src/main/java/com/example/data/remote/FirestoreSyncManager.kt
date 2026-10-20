@@ -49,10 +49,6 @@ class FirestoreSyncManager(
         require(userId.isNotBlank()) { "A signed-in user id is required to start sync." }
         stop()
 
-        scope.launch {
-            runCatching { ensureOwnDirectoryProfile(userId, displayName) }
-        }
-
         channelListPushJob = dao.getAllChannels()
             .map { channels -> channels }
             .catch { /* Local cache stays available if the network is temporarily unavailable. */ }
