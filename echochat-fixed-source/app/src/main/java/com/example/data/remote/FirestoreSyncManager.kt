@@ -37,7 +37,8 @@ class FirestoreSyncManager(
     private val messagePushJobs = mutableMapOf<String, Job>()
     private val messagePullListeners = mutableMapOf<String, ListenerRegistration>()
     // Concurrent sets are touched by Room collectors and Firestore callbacks.
-    private val remoteChannelIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val remoteChannels = java.util.concurrent.ConcurrentHashMap<String, ChannelEntity>()
+    private val remoteChannelListInitialized = java.util.concurrent.atomic.AtomicBoolean(false)
     private val uploadingMessageIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     /** Begin two-way sync for public channels. Safe to call after a previous session. */
@@ -61,23 +62,28 @@ class FirestoreSyncManager(
             .whereEqualTo("isDirectMessage", false)
             .addSnapshotListener { snapshot, error ->
                 if (error != null || snapshot == null) return@addSnapshotListener
-                val remoteChannels = snapshot.documents
+                val receivedChannels = snapshot.documents
                     .mapNotNull { it.toObject(ChannelEntity::class.java) }
                     .filterNot { it.isDirectMessage }
-                if (remoteChannels.isEmpty()) return@addSnapshotListener
-                // Avoid echoing remote channel upserts back into Firestore forever.
-                remoteChannelIds.addAll(remoteChannels.map { it.id })
+                // The first successful snapshot tells us the remote channel catalogue is authoritative.
+                receivedChannels.forEach { remoteChannels[it.id] = it }
+                remoteChannelListInitialized.set(true)
+                if (receivedChannels.isEmpty()) return@addSnapshotListener
                 scope.launch {
-                    remoteChannels.forEach { channel -> dao.insertChannel(channel) }
+                    receivedChannels.forEach { channel -> dao.insertChannel(channel) }
                     // The Room Flow above starts message listeners for newly received channels.
                 }
             }
     }
 
     private suspend fun pushChannelDocument(channel: ChannelEntity) {
-        if (channel.id in remoteChannelIds) return
+        // Do not let locally seeded/stale channel metadata overwrite the server catalogue
+        // before the initial remote snapshot has been received.
+        if (!remoteChannelListInitialized.get()) return
+        if (remoteChannels[channel.id] == channel) return
         runCatching {
             db.collection("channels").document(channel.id).set(channel).await()
+                .also { remoteChannels[channel.id] = channel }
         }
     }
 
@@ -144,7 +150,8 @@ class FirestoreSyncManager(
         channelsPullListener = null
         messagePullListeners.values.forEach { it.remove() }
         messagePullListeners.clear()
-        remoteChannelIds.clear()
+        remoteChannels.clear()
+        remoteChannelListInitialized.set(false)
         uploadingMessageIds.clear()
     }
 
