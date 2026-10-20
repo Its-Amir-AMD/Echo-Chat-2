@@ -52,6 +52,7 @@ fun AuthScreen(
     val context = LocalContext.current
     var registerMode by remember { mutableStateOf(false) }
     var displayName by remember { mutableStateOf("") }
+    var username by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
 
@@ -133,6 +134,15 @@ fun AuthScreen(
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
                             )
+                            OutlinedTextField(
+                                value = username,
+                                onValueChange = { username = it.lowercase().filter { ch -> ch in 'a'..'z' || ch in '0'..'9' || ch == '_' }.take(24) },
+                                modifier = Modifier.fillMaxWidth(),
+                                label = { Text(if (isPersian) "نام کاربری یکتا" else "Unique username") },
+                                supportingText = { Text(if (isPersian) "۳ تا ۲۴ حرف انگلیسی، عدد یا _" else "3–24 letters, numbers, or underscores") },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
+                            )
                         }
                         OutlinedTextField(
                             value = email,
@@ -176,7 +186,7 @@ fun AuthScreen(
                         Button(
                             onClick = {
                                 if (registerMode) {
-                                    viewModel.createAccountWithEmail(email, password, displayName)
+                                    viewModel.createAccountWithEmail(email, password, displayName, username)
                                 } else {
                                     viewModel.signInWithEmail(email, password)
                                 }
@@ -185,7 +195,11 @@ fun AuthScreen(
                             enabled = !accountState.isBusy &&
                                 email.contains("@") &&
                                 password.isNotBlank() &&
-                                (!registerMode || password.length >= 8)
+                                (!registerMode || (
+                                    password.length >= 8 &&
+                                    displayName.isNotBlank() &&
+                                    username.matches(Regex("^[a-z0-9_]{3,24}$"))
+                                ))
                         ) {
                             Text(
                                 if (registerMode) {
