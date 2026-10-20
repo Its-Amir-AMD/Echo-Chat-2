@@ -10,6 +10,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
@@ -68,10 +69,13 @@ class FirestoreSyncManager(
                 // The first successful snapshot tells us the remote channel catalogue is authoritative.
                 receivedChannels.forEach { remoteChannels[it.id] = it }
                 remoteChannelListInitialized.set(true)
-                if (receivedChannels.isEmpty()) return@addSnapshotListener
                 scope.launch {
                     receivedChannels.forEach { channel -> dao.insertChannel(channel) }
-                    // The Room Flow above starts message listeners for newly received channels.
+
+                    // Seed any local public room that does not exist in Firestore yet, but
+                    // do so only after merging the initial server snapshot into Room.
+                    val localChannels = dao.getAllChannels().first().filterNot { it.isDirectMessage }
+                    localChannels.forEach { channel -> pushChannelDocument(channel) }
                 }
             }
     }
@@ -80,7 +84,18 @@ class FirestoreSyncManager(
         // Do not let locally seeded/stale channel metadata overwrite the server catalogue
         // before the initial remote snapshot has been received.
         if (!remoteChannelListInitialized.get()) return
-        if (remoteChannels[channel.id] == channel) return
+        val remote = remoteChannels[channel.id]
+        if (remote == channel) return
+
+        // Existing server metadata wins on first sync. Only publish a changed, newer
+        // non-empty last-message preview; newly created local channel IDs are uploaded.
+        if (remote != null) {
+            val hasNewerMessage = channel.lastMessage.isNotBlank() &&
+                channel.lastMessage != remote.lastMessage &&
+                channel.lastMessageTime > remote.lastMessageTime
+            if (!hasNewerMessage) return
+        }
+
         runCatching {
             db.collection("channels").document(channel.id).set(channel).await()
                 .also { remoteChannels[channel.id] = channel }
