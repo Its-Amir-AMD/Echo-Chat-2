@@ -69,7 +69,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 .catch { /* Treat any auth plumbing failure as signed-out, never crash the UI. */ }
                 .onEach { user ->
                     if (user != null) {
-                        newSyncManager.start(user.uid)
+                        newSyncManager.start(user.uid, user.displayName)
                         _accountState.value = AccountUiState(
                             isCloudAvailable = true,
                             isSignedIn = true,
@@ -78,6 +78,15 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                             email = user.email,
                             isBusy = false
                         )
+                        viewModelScope.launch {
+                            runCatching {
+                                newSyncManager.ensureOwnDirectoryProfile(user.uid, user.displayName)
+                            }.onSuccess { username ->
+                                if (_accountState.value.userId == user.uid) {
+                                    _accountState.value = _accountState.value.copy(username = username)
+                                }
+                            }
+                        }
                     } else {
                         newSyncManager.stop()
                         _accountState.value = AccountUiState(isCloudAvailable = true, isSignedIn = false)
@@ -120,7 +129,6 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         _accountState.value = _accountState.value.copy(isBusy = true, lastError = null, lastMessage = null)
         viewModelScope.launch {
             runCatching { manager.signInWithEmail(email, password) }
-                .onSuccess { user -> updateSignedInAccount(user) }
                 .onFailure { e ->
                     _accountState.value = _accountState.value.copy(
                         isBusy = false,
@@ -130,14 +138,14 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun createAccountWithEmail(email: String, password: String, displayName: String) {
+    fun createAccountWithEmail(email: String, password: String, displayName: String, username: String) {
         val manager = authManager ?: run {
             _accountState.value = _accountState.value.copy(lastError = "Firebase is not configured.")
             return
         }
         _accountState.value = _accountState.value.copy(isBusy = true, lastError = null, lastMessage = null)
         viewModelScope.launch {
-            runCatching { manager.createAccountWithEmail(email, password, displayName) }
+            runCatching { manager.createAccountWithEmail(email, password, displayName, username) }
                 .onSuccess { user -> updateSignedInAccount(user) }
                 .onFailure { e ->
                     _accountState.value = _accountState.value.copy(
@@ -388,9 +396,40 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun startDirectMessage(peerName: String) {
+    fun startDirectMessage(username: String, onComplete: (String?) -> Unit) {
+        val manager = syncManager
+        val account = _accountState.value
+        val currentUserId = account.userId
+        if (manager == null || currentUserId.isNullOrBlank()) {
+            onComplete("You must be signed in to start a private conversation.")
+            return
+        }
+
         viewModelScope.launch {
-            repository.startDirectMessage(peerName)
+            try {
+                val peer = manager.findPublicUserByUsername(username)
+                    ?: throw IllegalArgumentException("No account was found for @" + username + ".")
+                require(peer.uid != currentUserId) { "You cannot start a conversation with your own account." }
+
+                val conversationId = manager.openDirectConversation(
+                    currentUserId = currentUserId,
+                    currentDisplayName = account.displayName?.takeIf { it.isNotBlank() }
+                        ?: account.email
+                        ?: "Echo User",
+                    peer = peer
+                )
+                repository.startDirectMessage(
+                    conversationId = conversationId,
+                    peerId = peer.uid,
+                    peerName = peer.displayName.ifBlank { "@" + peer.username }
+                )
+                _selectedChannelId.value = conversationId
+                _currentMainTab.value = 0
+                _replyingTo.value = null
+                onComplete(null)
+            } catch (error: Exception) {
+                onComplete(error.message ?: "Could not open the private conversation.")
+            }
         }
     }
 
@@ -477,6 +516,7 @@ data class AccountUiState(
     val isCloudAvailable: Boolean = false,
     val isSignedIn: Boolean = false,
     val userId: String? = null,
+    val username: String? = null,
     val displayName: String? = null,
     val email: String? = null,
     val isBusy: Boolean = false,
