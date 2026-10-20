@@ -153,21 +153,42 @@ class EchoChatRepository(
         dao.insertChannel(newChannel)
     }
 
-    suspend fun startDirectMessage(peerName: String, peerAvatarColor: Long = 0xFF8B5CF6) {
-        val id = "dm_" + UUID.randomUUID().toString().take(8)
-        val newDm = ChannelEntity(
-            id = id,
-            name = peerName,
-            description = "گفتگوی دونفره",
-            iconName = "person",
-            isDirectMessage = true,
-            peerName = peerName,
-            peerAvatarColor = peerAvatarColor,
-            lastMessage = "",
-            lastMessageTime = System.currentTimeMillis(),
-            createdAt = System.currentTimeMillis()
-        )
-        dao.insertChannel(newDm)
+    suspend fun startDirectMessage(
+        conversationId: String,
+        peerId: String,
+        peerName: String,
+        peerAvatarColor: Long = 0xFF8B5CF6
+    ) {
+        require(conversationId.startsWith("dm_")) { "Invalid private conversation id." }
+        require(peerId.isNotBlank()) { "A peer account is required." }
+        val now = System.currentTimeMillis()
+        val existing = dao.getChannelByIdOnce(conversationId)
+        val channel = if (existing != null) {
+            existing.copy(
+                name = peerName,
+                description = "گفتگوی خصوصی",
+                iconName = "person",
+                isDirectMessage = true,
+                peerName = peerName,
+                peerId = peerId,
+                peerAvatarColor = peerAvatarColor
+            )
+        } else {
+            ChannelEntity(
+                id = conversationId,
+                name = peerName,
+                description = "گفتگوی خصوصی",
+                iconName = "person",
+                isDirectMessage = true,
+                peerName = peerName,
+                peerId = peerId,
+                peerAvatarColor = peerAvatarColor,
+                lastMessage = "",
+                lastMessageTime = 0L,
+                createdAt = now
+            )
+        }
+        dao.insertChannel(channel)
     }
 
     // --- Social Posts Operations ---
