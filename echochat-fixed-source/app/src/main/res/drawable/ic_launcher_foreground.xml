@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Centered speech bubble within 66dp safe zone (21 to 87) -->
+    <!-- Main chat bubble body -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M34,31 C27.37,31 22,36.37 22,43 L22,63 C22,69.63 27.37,75 34,75 L42,75 L42,85 C42,86.2 43.4,86.9 44.4,86.2 L57,75 L74,75 C80.63,75 86,69.63 86,63 L86,43 C86,36.37 80.63,31 74,31 Z" />
+
+    <!-- Sound waves / Echo bars inside bubble -->
+    <!-- Bar 1 (left) -->
+    <path
+        android:fillColor="#FF4F46E5"
+        android:pathData="M37,47 C35.9,47 35,47.9 35,49 L35,57 C35,58.1 35.9,59 37,59 C38.1,59 39,58.1 39,57 L39,49 C39,47.9 38.1,47 37,47 Z" />
+    <!-- Bar 2 (center-left, tall) -->
+    <path
+        android:fillColor="#FF4338CA"
+        android:pathData="M46,41 C44.9,41 44,41.9 44,43 L44,63 C44,64.1 44.9,65 46,65 C47.1,65 48,64.1 48,63 L48,43 C48,41.9 47.1,41 46,41 Z" />
+    <!-- Bar 3 (center, highest echo) -->
+    <path
+        android:fillColor="#FF6366F1"
+        android:pathData="M55,37 C53.9,37 53,37.9 53,39 L53,67 C53,68.1 53.9,69 55,69 C56.1,69 57,68.1 57,67 L57,39 C57,37.9 56.1,37 55,37 Z" />
+    <!-- Bar 4 (center-right, tall) -->
+    <path
+        android:fillColor="#FF4338CA"
+        android:pathData="M64,41 C62.9,41 62,41.9 62,43 L62,63 C62,64.1 62.9,65 64,65 C65.1,65 66,64.1 66,63 L66,43 C66,41.9 65.1,41 64,41 Z" />
+    <!-- Bar 5 (right) -->
+    <path
+        android:fillColor="#FF4F46E5"
+        android:pathData="M73,47 C71.9,47 71,47.9 71,49 L71,57 C71,58.1 71.9,59 73,59 C74.1,59 75,58.1 75,57 L75,49 C75,47.9 74.1,47 73,47 Z" />
+</vector>

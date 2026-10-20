@@ -1,0 +1,1146 @@
+From d9df31eae7c60a2bc133c60f04ba4ba6e7322fb7 Mon Sep 17 00:00:00 2001
+From: EchoChat Assistant <assistant@echochat.local>
+Date: Mon, 19 Oct 2026 16:05:50 +0000
+Subject: [PATCH] Fix responsive layout bugs, localize hardcoded strings, and
+ add optional Firebase cloud sync
+
+Responsive / UI fixes:
+- Channel list rail used a fixed 320dp width on wide screens; now scales
+  with available width (280-380dp) so it looks right on tablets too.
+- Message input bar had no IME padding, so the keyboard could cover it;
+  added imePadding() and windowSoftInputMode=adjustResize.
+- ModalBottomSheet (profile/settings) stretched full-width on desktop-size
+  windows; now capped at 480dp and centered.
+- Post cards in Explore/Saved/Profile stretched full-width on wide screens;
+  now capped at 640dp and centered, matching the channel list treatment.
+- Fixed a fragile dark-mode detection in MessageBubble that compared a
+  Color's raw bit value against a hardcoded constant; now uses luminance().
+- Removed a pre-existing duplicate  in DialogsAndSheets.kt.
+
+Localization:
+- Seven hardcoded Persian/English mixed strings (post category label,
+  channel icon label, contact name label, suggested contacts label,
+  avatar color label, shared posts title, and several content
+  descriptions) now go through EchoStrings instead of bypassing i18n.
+- Added a test asserting the newly localized keys exist in both languages.
+
+Optional Firebase backend (additive, inert unless configured):
+- FirebaseAuthManager: Google Sign-In via Credential Manager, using a
+  SHA-256-hashed nonce (API 24-safe, avoids java.util.Base64).
+- FirestoreSyncManager: one-way-per-direction bridge between Room and
+  Firestore for channels and messages, with exactly one listener/collector
+  per channel to avoid leaks. Local Room data remains the source of truth
+  the UI reads from; nothing in the ViewModel/Repository/Compose layer had
+  to change for screens to keep working with or without sync enabled.
+- EchoChatViewModel now exposes accountState/signInWithGoogle/signOut,
+  gated behind FirebaseApp.getApps(context).isNotEmpty() so the sign-in UI
+  is hidden entirely when no real Firebase project is linked.
+- ChannelEntity/MessageEntity given default values for every field so
+  Firestore's toObject() (which needs a no-arg constructor) can deserialize
+  them; verified every existing call site already used named arguments.
+- Uncommented the already-scaffolded firebase-firestore/firebase-auth/
+  credentials/googleid dependencies; added the missing
+  kotlinx-coroutines-play-services dependency required for Task.await().
+- Added app/FIREBASE_SETUP.md with full setup steps (Firebase project,
+  google-services.json, Web client ID, Firestore security rules) and
+  documented current sync limitations (channels/messages only, full-resend
+  push strategy, IGNORE conflict policy).
+- Updated README.md to describe the new optional sync path accurately.
+---
+ README.md                                     |   7 +-
+ app/FIREBASE_SETUP.md                         |  72 +++++++++
+ app/build.gradle.kts                          |  11 +-
+ app/src/main/AndroidManifest.xml              |   3 +-
+ .../com/example/data/model/ChatEntities.kt    |  21 ++-
+ .../data/remote/FirebaseAuthManager.kt        | 125 ++++++++++++++++
+ .../data/remote/FirestoreSyncManager.kt       | 141 ++++++++++++++++++
+ .../java/com/example/ui/EchoChatViewModel.kt  |  86 +++++++++++
+ .../example/ui/components/ChatComponents.kt   |   6 +-
+ .../example/ui/components/DialogsAndSheets.kt |  58 ++++++-
+ .../com/example/ui/screens/ExploreScreen.kt   |   7 +-
+ .../java/com/example/ui/screens/MainScreen.kt |  26 +++-
+ .../com/example/ui/screens/ProfileScreen.kt   |  13 +-
+ .../example/ui/screens/SavedPostsScreen.kt    |   3 +-
+ .../java/com/example/util/Localization.kt     |  36 ++++-
+ .../com/example/EchoChatLocalizationTest.kt   |  23 +++
+ gradle/libs.versions.toml                     |   2 +
+ 17 files changed, 600 insertions(+), 40 deletions(-)
+ create mode 100644 app/FIREBASE_SETUP.md
+ create mode 100644 app/src/main/java/com/example/data/remote/FirebaseAuthManager.kt
+ create mode 100644 app/src/main/java/com/example/data/remote/FirestoreSyncManager.kt
+
+diff --git a/README.md b/README.md
+index 2f49bf9..b0d9233 100644
+--- a/README.md
++++ b/README.md
+@@ -15,11 +15,12 @@ EchoChat is a native Android project built with Kotlin, Jetpack Compose, Materia
+ - Profile editing that preserves unrelated saved fields.
+ - Non-destructive Room migrations for the schema versions defined in this project.
+ - Firebase AI Logic integration for the Echo assistant, with a visible error message when Firebase AI is not configured or a request fails.
++- Optional Firebase Authentication (Google sign-in) and a Firestore sync bridge for channels and messages — see `app/FIREBASE_SETUP.md`. Entirely inert, with no UI shown, until a real Firebase project is linked.
+ - GitHub Actions workflow for unit tests, lint, and a debug APK build.
+ 
+ ## Important scope and deployment note
+ 
+-The current chat and social data repositories still use the local Room database. This means human conversations, channels, posts, comments, and stories are **not yet synchronized between accounts or devices**. Firebase Authentication and Cloud Firestore are not currently wired into those flows. Do not advertise this build as a production-ready multi-user or real-time cloud messenger until authentication, remote repositories, and restrictive production Firestore rules have been implemented and tested.
++The local Room database remains the single source of truth the UI reads from, so the app is fully usable offline in every build. `FirebaseAuthManager` and `FirestoreSyncManager` (under `app/src/main/java/com/example/data/remote/`) add an optional bridge that mirrors channels and messages to Cloud Firestore once a user signs in with Google — see `app/FIREBASE_SETUP.md` for the setup steps a real deployment requires (a Firebase project, `google-services.json`, a Web client ID, and production Firestore security rules). Posts, stories, and the profile are **not yet synchronized**; only channels and chat messages are. Do not advertise this build as a production-ready multi-user or real-time cloud messenger until the setup in `app/FIREBASE_SETUP.md` is completed, remote repositories cover every entity, and restrictive production Firestore rules have been implemented and tested.
+ 
+ The seeded channels, sample messages, and sample feed content are local demo data. They are not actual online users or remote conversations. The app intentionally no longer fabricates replies from human participants.
+ 
+@@ -72,8 +73,8 @@ Room schema version 4 includes the local posts, stories, comments, and query ind
+ 
+ Before a public release, complete and verify at least the following:
+ 
+-- Firebase Authentication and account/session lifecycle.
+-- Firestore-backed chat and social repositories with authorization rules.
++- Complete the Firebase setup in `app/FIREBASE_SETUP.md` (project, `google-services.json`, Web client ID, Firestore security rules) and verify the account/session lifecycle end to end.
++- Extend `FirestoreSyncManager` (or an equivalent) to cover posts, stories, and the profile — only channels and messages sync today.
+ - Real conversation membership, delivery/read receipts, and presence.
+ - Production error reporting, data deletion/export policy, privacy policy, and abuse controls.
+ - Integration tests against Firebase emulators and the configured App Check environment.
+diff --git a/app/FIREBASE_SETUP.md b/app/FIREBASE_SETUP.md
+new file mode 100644
+index 0000000..7911730
+--- /dev/null
++++ b/app/FIREBASE_SETUP.md
+@@ -0,0 +1,72 @@
++# راه‌اندازی بک‌اند ابری (Firebase) برای EchoChat
++
++این پروژه از نظر کد برای اتصال به یک بک‌اند ابری واقعی (Firebase Authentication +
++Cloud Firestore) آماده شده است، اما فعال‌سازی نهایی به یک حساب Google و پروژه‌ی
++Firebase شخصی شما نیاز دارد که هیچ ابزار خودکاری نمی‌تواند از طرف شما بسازد.
++
++بدون انجام این مراحل، اپ کاملاً عادی و بدون کرش در **حالت محلی** کار می‌کند
++(تمام داده‌ها فقط روی همان دستگاه، در پایگاه‌داده‌ی Room، ذخیره می‌شوند) — دقیقاً
++همان‌طور که پیش از این کار می‌کرد.
++
++## چه چیزی از قبل آماده است
++
++- `FirebaseAuthManager` (در `app/src/main/java/com/example/data/remote/`): ورود با
++  Google از طریق Credential Manager.
++- `FirestoreSyncManager` (همان پوشه): همگام‌سازی دوطرفه‌ی کانال‌ها و پیام‌ها بین
++  Room محلی و Firestore، بدون نیاز به تغییر در UI یا ViewModel موجود.
++- `EchoChatViewModel` به‌صورت خودکار بررسی می‌کند آیا یک پروژه‌ی Firebase واقعی
++  وصل است (`FirebaseApp.getApps(context).isNotEmpty()`)؛ اگر نه، این دو سرویس
++  اصلاً فعال نمی‌شوند و دکمه‌ی ورود در تنظیمات پروفایل نمایش داده نمی‌شود.
++
++## مراحل فعال‌سازی
++
++1. به [console.firebase.google.com](https://console.firebase.google.com) بروید و
++   یک پروژه‌ی جدید بسازید.
++2. داخل پروژه، یک اپ اندرویدی اضافه کنید با Application ID دقیقاً برابر:
++   ```
++   com.aistudio.echochat.vpkzqr
++   ```
++   (این مقدار در `app/build.gradle.kts` تحت `defaultConfig.applicationId` تعریف
++   شده است.)
++3. فایل `google-services.json` را دانلود کرده و داخل پوشه‌ی `app/` این ریپازیتوری
++   (کنار `build.gradle.kts`) قرار دهید.
++4. در Firebase Console:
++   - از بخش **Authentication → Sign-in method**، provider «Google» را فعال کنید.
++   - از همان صفحه، **Web client ID** را کپی کنید.
++   - از بخش **Firestore Database**، یک پایگاه‌داده بسازید (Production mode کافی
++     است) و Security Rules مناسب برای مسیر `users/{userId}/**` تنظیم کنید تا هر
++     کاربر فقط به داده‌ی خودش دسترسی داشته باشد؛ نمونه:
++     ```
++     rules_version = '2';
++     service cloud.firestore {
++       match /databases/{database}/documents {
++         match /users/{userId}/{document=**} {
++           allow read, write: if request.auth != null && request.auth.uid == userId;
++         }
++       }
++     }
++     ```
++5. در کد، مقدار `FirebaseAuthManager.DEFAULT_WEB_CLIENT_ID` (در
++   `app/src/main/java/com/example/data/remote/FirebaseAuthManager.kt`) را با
++   Web Client ID واقعی‌تان جایگزین کنید — یا بهتر، آن را از طریق فایل `.env`
++   (که این پروژه با Secrets Gradle Plugin از قبل پشتیبانی می‌کند؛ نگاه کنید به
++   `.env.example`) تزریق کنید و در سازنده‌ی `FirebaseAuthManager` پاس دهید.
++6. پروژه را در Android Studio باز و Sync کنید؛ پلاگین `google-services` به‌طور
++   خودکار فایل تازه را تشخیص می‌دهد.
++7. برای App Check (که از قبل در `EchoChatApplication.kt` برای Firebase AI
++   تنظیم شده)، یک دیباگ توکن در کنسول Firebase ثبت کنید تا در حالت دیباگ هم
++   درخواست‌ها رد نشوند.
++
++## محدودیت‌های شناخته‌شده‌ی پیاده‌سازی فعلی sync
++
++- `FirestoreSyncManager` برای سادگی، هر بار که لیست محلی پیام‌های یک کانال
++  تغییر می‌کند، تا ۵۰۰ پیام آخر آن کانال را دوباره به Firestore push می‌کند
++  (نه فقط پیام تغییریافته). برای یک اپ شخصی/دمو کفایت می‌کند؛ برای مقیاس
++  واقعی، بهتر است فقط رکوردهای تغییریافته (diff) ارسال شوند.
++- پیام‌های دریافتی از Firestore با `OnConflictStrategy.IGNORE` در Room درج
++  می‌شوند؛ یعنی اگر پیامی که از قبل محلی وجود دارد در دستگاه دیگری ویرایش شود
++  (مثلاً reaction تغییر کند)، آن تغییر در دستگاه فعلی اعمال نمی‌شود. برای حل
++  این مورد باید یک متد DAO جدید با `OnConflictStrategy.REPLACE` اضافه شود.
++- پست‌ها، استوری‌ها و پروفایل فعلاً همگام‌سازی نمی‌شوند — فقط کانال‌ها و
++  پیام‌های چت. گسترش این الگو به بقیه‌ی موجودیت‌ها ساده است (از همان الگوی
++  push/pull استفاده کنید) اما در این نسخه پیاده نشده است.
+diff --git a/app/build.gradle.kts b/app/build.gradle.kts
+index cbffc3c..a78df79 100644
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -111,16 +111,17 @@ dependencies {
+   implementation(libs.coil.compose)
+   implementation(libs.converter.moshi)
+   implementation(libs.firebase.ai)
+-  // implementation(libs.firebase.firestore)
+-  // implementation(libs.firebase.auth)
+-  // implementation(libs.androidx.credentials)
+-  // implementation(libs.androidx.credentials.play.services)
+-  // implementation(libs.googleid)
++  implementation(libs.firebase.firestore)
++  implementation(libs.firebase.auth)
++  implementation(libs.androidx.credentials)
++  implementation(libs.androidx.credentials.play.services)
++  implementation(libs.googleid)
+   implementation(libs.firebase.appcheck.recaptcha)
+   implementation(libs.firebase.appcheck.debug)
+   implementation(libs.firebase.appcheck.playintegrity)
+   implementation(libs.kotlinx.coroutines.android)
+   implementation(libs.kotlinx.coroutines.core)
++  implementation(libs.kotlinx.coroutines.play.services)
+   implementation(libs.logging.interceptor)
+   implementation(libs.moshi.kotlin)
+   implementation(libs.okhttp)
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+index 98f79a4..f034599 100644
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -19,7 +19,8 @@
+             android:name=".MainActivity"
+             android:exported="true"
+             android:label="@string/app_name"
+-            android:theme="@style/Theme.MyApplication">
++            android:theme="@style/Theme.MyApplication"
++            android:windowSoftInputMode="adjustResize">
+             <intent-filter>
+                 <action android:name="android.intent.action.MAIN" />
+ 
+diff --git a/app/src/main/java/com/example/data/model/ChatEntities.kt b/app/src/main/java/com/example/data/model/ChatEntities.kt
+index fcb85ee..1d05879 100644
+--- a/app/src/main/java/com/example/data/model/ChatEntities.kt
++++ b/app/src/main/java/com/example/data/model/ChatEntities.kt
+@@ -4,11 +4,16 @@ import androidx.room.Entity
+ import androidx.room.PrimaryKey
+ import androidx.room.Index
+ 
++// Note: every field below has a default value, even the ones that are always supplied
++// explicitly throughout the app. This keeps these classes compatible with Firestore's
++// toObject(), which requires a no-argument constructor to deserialize documents synced
++// from other devices (see FirestoreSyncManager). It has no effect on Room, which already
++// reads/writes every column by name.
+ @Entity(tableName = "channels", indices = [Index(value = ["lastMessageTime"])])
+ data class ChannelEntity(
+-    @PrimaryKey val id: String,
+-    val name: String,
+-    val description: String,
++    @PrimaryKey val id: String = "",
++    val name: String = "",
++    val description: String = "",
+     val iconName: String = "forum",
+     val isDirectMessage: Boolean = false,
+     val peerName: String = "",
+@@ -21,12 +26,12 @@ data class ChannelEntity(
+ 
+ @Entity(tableName = "messages", indices = [Index(value = ["channelId", "timestamp"])])
+ data class MessageEntity(
+-    @PrimaryKey val id: String,
+-    val channelId: String,
+-    val senderId: String,
+-    val senderName: String,
++    @PrimaryKey val id: String = "",
++    val channelId: String = "",
++    val senderId: String = "",
++    val senderName: String = "",
+     val senderAvatarColor: Long = 0xFF4F46E5,
+-    val content: String,
++    val content: String = "",
+     val timestamp: Long = System.currentTimeMillis(),
+     val isOutgoing: Boolean = false,
+     val status: String = "read", // "sent", "delivered", "read"
+diff --git a/app/src/main/java/com/example/data/remote/FirebaseAuthManager.kt b/app/src/main/java/com/example/data/remote/FirebaseAuthManager.kt
+new file mode 100644
+index 0000000..96c0c4f
+--- /dev/null
++++ b/app/src/main/java/com/example/data/remote/FirebaseAuthManager.kt
+@@ -0,0 +1,125 @@
++package com.example.data.remote
++
++import android.content.Context
++import androidx.credentials.CredentialManager
++import androidx.credentials.GetCredentialRequest
++import androidx.credentials.exceptions.GetCredentialException
++import com.google.android.libraries.identity.googleid.GetGoogleIdOption
++import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
++import com.google.firebase.Firebase
++import com.google.firebase.auth.FirebaseAuth
++import com.google.firebase.auth.FirebaseUser
++import com.google.firebase.auth.GoogleAuthProvider
++import com.google.firebase.auth.auth
++import kotlinx.coroutines.flow.Flow
++import kotlinx.coroutines.flow.callbackFlow
++import kotlinx.coroutines.flow.distinctUntilChanged
++import kotlinx.coroutines.tasks.await
++import java.security.MessageDigest
++import java.security.SecureRandom
++
++/**
++ * Thin wrapper around Firebase Authentication with Google Sign-In.
++ *
++ * This boundary is intentionally separate from [EchoChatRepository] and [EchoChatDao]:
++ * the rest of the app keeps working against local Room data whether or not a real
++ * Firebase project is linked. When `google-services.json` is missing or invalid,
++ * every call here fails safely and the caller can continue in local-only mode.
++ *
++ * To enable cloud sign-in:
++ *  1. Create a Firebase project at https://console.firebase.google.com
++ *  2. Add an Android app with applicationId "com.aistudio.echochat.vpkzqr"
++ *  3. Enable the "Google" sign-in provider in Authentication settings
++ *  4. Download google-services.json into the app/ module directory
++ *  5. Add your Web client ID (from the Firebase/Google Cloud console) as
++ *     WEB_CLIENT_ID below, or supply it via BuildConfig.
++ */
++class FirebaseAuthManager(
++    private val webClientId: String = DEFAULT_WEB_CLIENT_ID
++) {
++    private val auth: FirebaseAuth
++        get() = Firebase.auth
++
++    val currentUser: FirebaseUser?
++        get() = runCatching { auth.currentUser }.getOrNull()
++
++    val isSignedIn: Boolean
++        get() = currentUser != null
++
++    /** Emits the current user on every auth state change; null when signed out. */
++    fun authStateFlow(): Flow<FirebaseUser?> = callbackFlow {
++        val listener = FirebaseAuth.AuthStateListener { firebaseAuth ->
++            trySend(firebaseAuth.currentUser)
++        }
++        val authInstance = runCatching { auth }.getOrNull()
++        if (authInstance == null) {
++            trySend(null)
++            close()
++            return@callbackFlow
++        }
++        authInstance.addAuthStateListener(listener)
++        awaitClose { authInstance.removeAuthStateListener(listener) }
++    }.distinctUntilChanged()
++
++    /**
++     * Launches the Credential Manager Google Sign-In flow and exchanges the resulting
++     * ID token for a Firebase session. Returns the signed-in [FirebaseUser].
++     *
++     * Throws if Firebase is not configured, Google Play Services is unavailable, or the
++     * user cancels the picker — callers should catch and show a friendly local-mode
++     * fallback rather than crash.
++     */
++    suspend fun signInWithGoogle(context: Context): FirebaseUser {
++        require(webClientId.isNotBlank() && webClientId != DEFAULT_WEB_CLIENT_ID) {
++            "Set a real OAuth Web Client ID (from the Firebase console) before enabling Google sign-in."
++        }
++
++        val nonce = generateNonce()
++        val googleIdOption = GetGoogleIdOption.Builder()
++            .setFilterByAuthorizedAccounts(false)
++            .setServerClientId(webClientId)
++            .setNonce(nonce)
++            .build()
++
++        val request = GetCredentialRequest.Builder()
++            .addCredentialOption(googleIdOption)
++            .build()
++
++        val credentialManager = CredentialManager.create(context)
++        val result = try {
++            credentialManager.getCredential(context, request)
++        } catch (e: GetCredentialException) {
++            throw IllegalStateException("Google sign-in was cancelled or unavailable.", e)
++        }
++
++        val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(result.credential.data)
++        val firebaseCredential = GoogleAuthProvider.getCredential(googleIdTokenCredential.idToken, null)
++        val authResult = auth.signInWithCredential(firebaseCredential).await()
++        return authResult.user
++            ?: throw IllegalStateException("Firebase did not return a signed-in user.")
++    }
++
++    fun signOut() {
++        runCatching { auth.signOut() }
++    }
++
++    private fun generateNonce(): String {
++        // android.util.Base64 is used instead of java.util.Base64, which only exists
++        // from API 26 — this app supports minSdk 24.
++        val bytes = ByteArray(32)
++        SecureRandom().nextBytes(bytes)
++        val rawNonce = android.util.Base64.encodeToString(
++            bytes,
++            android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP or android.util.Base64.NO_PADDING
++        )
++        // Google ID tokens carry a SHA-256 hash of the nonce, not the raw value.
++        val digest = MessageDigest.getInstance("SHA-256").digest(rawNonce.toByteArray())
++        return digest.joinToString("") { "%02x".format(it) }
++    }
++
++    companion object {
++        // Replace with the OAuth 2.0 Web Client ID from the Firebase console
++        // (Authentication > Sign-in method > Google > Web SDK configuration).
++        const val DEFAULT_WEB_CLIENT_ID = "REPLACE_WITH_FIREBASE_WEB_CLIENT_ID"
++    }
++}
+diff --git a/app/src/main/java/com/example/data/remote/FirestoreSyncManager.kt b/app/src/main/java/com/example/data/remote/FirestoreSyncManager.kt
+new file mode 100644
+index 0000000..c0e255b
+--- /dev/null
++++ b/app/src/main/java/com/example/data/remote/FirestoreSyncManager.kt
+@@ -0,0 +1,141 @@
++package com.example.data.remote
++
++import com.example.data.local.EchoChatDao
++import com.example.data.model.ChannelEntity
++import com.example.data.model.MessageEntity
++import com.google.firebase.Firebase
++import com.google.firebase.firestore.DocumentReference
++import com.google.firebase.firestore.ListenerRegistration
++import com.google.firebase.firestore.firestore
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.Job
++import kotlinx.coroutines.flow.catch
++import kotlinx.coroutines.flow.launchIn
++import kotlinx.coroutines.flow.onEach
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.tasks.await
++
++/**
++ * Bridges the local Room database with a Firestore-backed cloud account so the same
++ * conversation history can follow a signed-in user across devices.
++ *
++ * Design: Room stays the single source of truth for the UI (every screen already reads
++ * from DAO Flows, which is what keeps the app instant and usable offline). This manager
++ * only adds two one-way bridges on top of that, so nothing in the ViewModel, Repository,
++ * or Compose layer has to change to benefit from sync:
++ *
++ *  - push: one long-lived collector per channel mirrors that channel's local message list
++ *    up to Firestore every time it changes locally. The channel list itself is pushed the
++ *    same way. Each channel gets exactly one collector for the lifetime of a sync session,
++ *    tracked in [messagePushJobs], so repeated channel-list updates never pile up listeners.
++ *  - pull: real-time Firestore listeners write remote documents into Room as they arrive,
++ *    so other devices' activity shows up through the exact same DAO Flows the UI already
++ *    reads from.
++ *
++ * This class is deliberately inert until [start] is called with a real, non-blank
++ * [userId] from [FirebaseAuthManager]. In local-only mode (no sign-in, or no
++ * google-services.json configured) it is simply never started and the app behaves
++ * exactly as it did before — this is additive, not a replacement for local storage.
++ */
++class FirestoreSyncManager(
++    private val dao: EchoChatDao,
++    private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO)
++) {
++    private val db get() = Firebase.firestore
++
++    private var channelListPushJob: Job? = null
++    private var channelsPullListener: ListenerRegistration? = null
++    private val messagePushJobs = mutableMapOf<String, Job>()
++    private val messagePullListeners = mutableMapOf<String, ListenerRegistration>()
++
++    /** Begin two-way sync for [userId]. Safe to call again after [stop]. */
++    fun start(userId: String) {
++        require(userId.isNotBlank()) { "A signed-in user id is required to start sync." }
++        stop()
++
++        val userDoc = db.collection("users").document(userId)
++
++        // --- Push: local channel list -> Firestore. Also ensures a message pusher and a
++        // message pull-listener exist for every channel we currently know about locally. ---
++        channelListPushJob = dao.getAllChannels()
++            .catch { /* Local data is still fully usable without sync; swallow and keep local-only. */ }
++            .onEach { channels ->
++                channels.forEach { channel ->
++                    pushChannelDocument(userDoc, channel)
++                    ensureMessagePusher(userDoc, channel.id)
++                    ensureMessagePullListener(userDoc, channel.id)
++                }
++            }
++            .launchIn(scope)
++
++        // --- Pull: remote channel list -> Room ---
++        channelsPullListener = userDoc.collection("channels").addSnapshotListener { snapshot, _ ->
++            val remoteChannels = snapshot?.documents.orEmpty().mapNotNull { it.toObject(ChannelEntity::class.java) }
++            if (remoteChannels.isEmpty()) return@addSnapshotListener
++            scope.launch {
++                remoteChannels.forEach { channel ->
++                    dao.insertChannel(channel)
++                    ensureMessagePusher(userDoc, channel.id)
++                    ensureMessagePullListener(userDoc, channel.id)
++                }
++            }
++        }
++    }
++
++    private fun pushChannelDocument(userDoc: DocumentReference, channel: ChannelEntity) {
++        scope.launch {
++            runCatching { userDoc.collection("channels").document(channel.id).set(channel).await() }
++        }
++    }
++
++    /** Starts exactly one long-lived push collector per channel, the first time it is seen. */
++    private fun ensureMessagePusher(userDoc: DocumentReference, channelId: String) {
++        if (messagePushJobs.containsKey(channelId)) return
++        messagePushJobs[channelId] = dao.getMessagesForChannel(channelId)
++            .catch { /* Keep syncing other channels even if one fails. */ }
++            .onEach { messages ->
++                val batch = db.batch()
++                messages.takeLast(MAX_MESSAGES_PUSHED_PER_SYNC).forEach { message ->
++                    val ref = userDoc.collection("channels").document(channelId)
++                        .collection("messages").document(message.id)
++                    batch.set(ref, message)
++                }
++                runCatching { batch.commit().await() }
++            }
++            .launchIn(scope)
++    }
++
++    /** Starts exactly one Firestore listener per channel, the first time it is seen. */
++    private fun ensureMessagePullListener(userDoc: DocumentReference, channelId: String) {
++        if (messagePullListeners.containsKey(channelId)) return
++        val registration = userDoc.collection("channels").document(channelId)
++            .collection("messages")
++            .addSnapshotListener { snapshot, _ ->
++                val remoteMessages = snapshot?.documents.orEmpty().mapNotNull { it.toObject(MessageEntity::class.java) }
++                if (remoteMessages.isEmpty()) return@addSnapshotListener
++                // insertMessages uses OnConflictStrategy.IGNORE, so a message already present
++                // locally with the same id keeps its local copy. This correctly brings in new
++                // messages from other devices; a later edit to reaction/status made remotely
++                // after the message already synced once will not overwrite the local row.
++                scope.launch { dao.insertMessages(remoteMessages) }
++            }
++        messagePullListeners[channelId] = registration
++    }
++
++    /** Stop all active listeners and pushers, e.g. on sign-out. */
++    fun stop() {
++        channelListPushJob?.cancel()
++        channelListPushJob = null
++        messagePushJobs.values.forEach { it.cancel() }
++        messagePushJobs.clear()
++        channelsPullListener?.remove()
++        channelsPullListener = null
++        messagePullListeners.values.forEach { it.remove() }
++        messagePullListeners.clear()
++    }
++
++    private companion object {
++        const val MAX_MESSAGES_PUSHED_PER_SYNC = 500
++    }
++}
+diff --git a/app/src/main/java/com/example/ui/EchoChatViewModel.kt b/app/src/main/java/com/example/ui/EchoChatViewModel.kt
+index 94f0d30..efbb6d6 100644
+--- a/app/src/main/java/com/example/ui/EchoChatViewModel.kt
++++ b/app/src/main/java/com/example/ui/EchoChatViewModel.kt
+@@ -10,19 +10,25 @@ import com.example.data.model.MessageEntity
+ import com.example.data.model.PostEntity
+ import com.example.data.model.StoryEntity
+ import com.example.data.model.UserProfileEntity
++import com.example.data.remote.FirebaseAuthManager
++import com.example.data.remote.FirestoreSyncManager
+ import com.example.data.repository.EchoChatRepository
+ import com.example.util.AppLanguage
+ import com.example.util.UserPreferences
++import com.google.firebase.FirebaseApp
+ import kotlinx.coroutines.flow.Flow
+ import kotlinx.coroutines.ExperimentalCoroutinesApi
+ import kotlinx.coroutines.flow.MutableStateFlow
+ import kotlinx.coroutines.flow.SharingStarted
+ import kotlinx.coroutines.flow.StateFlow
+ import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.flow.catch
+ import kotlinx.coroutines.flow.collect
+ import kotlinx.coroutines.flow.combine
+ import kotlinx.coroutines.flow.flatMapLatest
+ import kotlinx.coroutines.flow.flowOf
++import kotlinx.coroutines.flow.launchIn
++import kotlinx.coroutines.flow.onEach
+ import kotlinx.coroutines.flow.stateIn
+ import kotlinx.coroutines.launch
+ 
+@@ -32,9 +38,73 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
+     private val repository: EchoChatRepository
+     private val userPreferences = UserPreferences(application)
+ 
++    // Cloud sync is entirely optional. These are only usable once a real Firebase
++    // project is linked (see app/FIREBASE_SETUP.md); until then they stay inert and
++    // every screen keeps working against local Room data exactly as before.
++    private val isFirebaseConfigured: Boolean
++    private val authManager: FirebaseAuthManager?
++    private val syncManager: FirestoreSyncManager?
++
++    private val _accountState = MutableStateFlow(AccountUiState())
++    val accountState: StateFlow<AccountUiState> = _accountState.asStateFlow()
++
+     init {
+         val database = EchoDatabase.getInstance(application)
+         repository = EchoChatRepository(database.chatDao(), viewModelScope)
++
++        isFirebaseConfigured = runCatching { FirebaseApp.getApps(application).isNotEmpty() }
++            .getOrDefault(false)
++
++        if (isFirebaseConfigured) {
++            val newAuthManager = FirebaseAuthManager()
++            val newSyncManager = FirestoreSyncManager(database.chatDao(), viewModelScope)
++            authManager = newAuthManager
++            syncManager = newSyncManager
++            newAuthManager.authStateFlow()
++                .catch { /* Treat any auth plumbing failure as signed-out, never crash the UI. */ }
++                .onEach { user ->
++                    if (user != null) {
++                        newSyncManager.start(user.uid)
++                        _accountState.value = AccountUiState(
++                            isCloudAvailable = true,
++                            isSignedIn = true,
++                            displayName = user.displayName,
++                            email = user.email
++                        )
++                    } else {
++                        newSyncManager.stop()
++                        _accountState.value = AccountUiState(isCloudAvailable = true, isSignedIn = false)
++                    }
++                }
++                .launchIn(viewModelScope)
++        } else {
++            authManager = null
++            syncManager = null
++            _accountState.value = AccountUiState(isCloudAvailable = false, isSignedIn = false)
++        }
++    }
++
++    /** Starts the Google sign-in flow. No-ops with a friendly error when Firebase isn't linked. */
++    fun signInWithGoogle(context: android.content.Context) {
++        val manager = authManager ?: run {
++            _accountState.value = _accountState.value.copy(
++                lastError = "Cloud sync is not configured for this build."
++            )
++            return
++        }
++        viewModelScope.launch {
++            runCatching { manager.signInWithGoogle(context) }
++                .onFailure { e ->
++                    _accountState.value = _accountState.value.copy(
++                        lastError = e.message ?: "Google sign-in failed."
++                    )
++                }
++        }
++    }
++
++    fun signOut() {
++        authManager?.signOut()
++        syncManager?.stop()
+     }
+ 
+     val channels: StateFlow<List<ChannelEntity>> = repository.allChannels
+@@ -312,3 +382,19 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
+         }
+     }
+ }
++
++/**
++ * UI-facing snapshot of cloud account state.
++ *
++ * [isCloudAvailable] is false whenever no Firebase project is linked (no
++ * google-services.json, or Firebase failed to initialize) — in that case the
++ * profile/settings screen should hide sign-in controls entirely rather than show a
++ * button that cannot work. See app/FIREBASE_SETUP.md.
++ */
++data class AccountUiState(
++    val isCloudAvailable: Boolean = false,
++    val isSignedIn: Boolean = false,
++    val displayName: String? = null,
++    val email: String? = null,
++    val lastError: String? = null
++)
+diff --git a/app/src/main/java/com/example/ui/components/ChatComponents.kt b/app/src/main/java/com/example/ui/components/ChatComponents.kt
+index 66901e3..72ccbe5 100644
+--- a/app/src/main/java/com/example/ui/components/ChatComponents.kt
++++ b/app/src/main/java/com/example/ui/components/ChatComponents.kt
+@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.Row
+ import androidx.compose.foundation.layout.Spacer
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.imePadding
+ import androidx.compose.foundation.layout.offset
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.layout.size
+@@ -68,6 +69,7 @@ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.draw.clip
+ import androidx.compose.ui.graphics.Brush
+ import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.graphics.luminance
+ import androidx.compose.ui.graphics.vector.ImageVector
+ import androidx.compose.ui.platform.LocalContext
+ import androidx.compose.ui.platform.testTag
+@@ -101,8 +103,7 @@ fun MessageBubble(
+     var showMenu by remember { mutableStateOf(false) }
+     var showEmojiPicker by remember { mutableStateOf(false) }
+ 
+-    val isDark = MaterialTheme.colorScheme.background.value == 0xFF0B0F19.toULong() ||
+-            MaterialTheme.colorScheme.surface.value == 0xFF111827.toULong()
++    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+ 
+     val bubbleColor = if (message.isOutgoing) {
+         ChatBubbleOutgoing
+@@ -340,6 +341,7 @@ fun MessageInputBar(
+         modifier = modifier
+             .fillMaxWidth()
+             .background(MaterialTheme.colorScheme.surface)
++            .imePadding()
+             .padding(horizontal = 8.dp, vertical = 6.dp)
+     ) {
+         // Reply Preview Banner
+diff --git a/app/src/main/java/com/example/ui/components/DialogsAndSheets.kt b/app/src/main/java/com/example/ui/components/DialogsAndSheets.kt
+index 37eb2cf..ef53bf0 100644
+--- a/app/src/main/java/com/example/ui/components/DialogsAndSheets.kt
++++ b/app/src/main/java/com/example/ui/components/DialogsAndSheets.kt
+@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.PaddingValues
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.layout.size
+ import androidx.compose.foundation.layout.width
++import androidx.compose.foundation.layout.widthIn
+ import androidx.compose.foundation.lazy.LazyColumn
+ import androidx.compose.foundation.lazy.LazyRow
+ import androidx.compose.foundation.lazy.items
+@@ -30,7 +31,6 @@ import androidx.compose.material.icons.filled.Palette
+ import androidx.compose.material.icons.filled.SmartToy
+ import androidx.compose.material3.AlertDialog
+ import androidx.compose.material3.Button
+-import androidx.compose.material3.Button
+ import androidx.compose.material3.ButtonDefaults
+ import androidx.compose.material3.Card
+ import androidx.compose.material3.CardDefaults
+@@ -110,7 +110,7 @@ fun CreateChannelDialog(
+                 )
+ 
+                 Text(
+-                    text = "آیکون کانال / Channel Icon",
++                    text = EchoStrings.get("channel_icon_label", language),
+                     fontSize = 12.sp,
+                     color = MaterialTheme.colorScheme.onSurfaceVariant
+                 )
+@@ -188,13 +188,13 @@ fun StartDirectMessageDialog(
+                 OutlinedTextField(
+                     value = name,
+                     onValueChange = { name = it },
+-                    label = { Text("نام مخاطب / Contact Name") },
++                    label = { Text(EchoStrings.get("contact_name_label", language)) },
+                     modifier = Modifier.fillMaxWidth(),
+                     singleLine = true
+                 )
+ 
+                 Text(
+-                    text = "مخاطبین پیشنهادی / Suggested:",
++                    text = EchoStrings.get("suggested_contacts_label", language),
+                     fontSize = 12.sp,
+                     color = MaterialTheme.colorScheme.onSurfaceVariant
+                 )
+@@ -249,7 +249,10 @@ fun ProfileAndSettingsSheet(
+     onSaveProfile: (displayName: String, bio: String, avatarColor: Long) -> Unit,
+     onToggleLanguage: () -> Unit,
+     onToggleTheme: () -> Unit,
+-    sheetState: SheetState
++    sheetState: SheetState,
++    accountState: com.example.ui.AccountUiState = com.example.ui.AccountUiState(),
++    onSignInWithGoogle: () -> Unit = {},
++    onSignOut: () -> Unit = {}
+ ) {
+     var displayName by remember(profile) { mutableStateOf(profile?.displayName ?: "کاربر اکو") }
+     var bio by remember(profile) { mutableStateOf(profile?.bio ?: "علاقه‌مند به تکنولوژی 🚀") }
+@@ -271,6 +274,8 @@ fun ProfileAndSettingsSheet(
+         Column(
+             modifier = Modifier
+                 .fillMaxWidth()
++                .widthIn(max = 480.dp)
++                .align(Alignment.CenterHorizontally)
+                 .padding(horizontal = 20.dp, vertical = 10.dp),
+             verticalArrangement = Arrangement.spacedBy(16.dp)
+         ) {
+@@ -302,7 +307,7 @@ fun ProfileAndSettingsSheet(
+ 
+                 Column {
+                     Text(
+-                        text = "رنگ نمایه / Avatar Color",
++                        text = EchoStrings.get("avatar_color_label", currentLanguage),
+                         fontSize = 12.sp,
+                         color = MaterialTheme.colorScheme.onSurfaceVariant
+                     )
+@@ -380,6 +385,47 @@ fun ProfileAndSettingsSheet(
+                 }
+             }
+ 
++            // Cloud Account: hidden entirely when no Firebase project is linked, so this
++            // never shows a sign-in control that could not possibly work. See
++            // app/FIREBASE_SETUP.md to enable it.
++            if (accountState.isCloudAvailable) {
++                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
++                    Text(
++                        text = EchoStrings.get("cloud_account_title", currentLanguage),
++                        style = MaterialTheme.typography.titleSmall,
++                        fontWeight = FontWeight.Bold
++                    )
++                    if (accountState.isSignedIn) {
++                        Text(
++                            text = "${EchoStrings.get("cloud_account_signed_in_as", currentLanguage)}: " +
++                                (accountState.displayName ?: accountState.email ?: ""),
++                            fontSize = 13.sp,
++                            color = MaterialTheme.colorScheme.onSurfaceVariant
++                        )
++                        OutlinedButton(
++                            onClick = onSignOut,
++                            modifier = Modifier.fillMaxWidth()
++                        ) {
++                            Text(EchoStrings.get("cloud_account_sign_out", currentLanguage))
++                        }
++                    } else {
++                        OutlinedButton(
++                            onClick = onSignInWithGoogle,
++                            modifier = Modifier.fillMaxWidth()
++                        ) {
++                            Text(EchoStrings.get("cloud_account_sign_in", currentLanguage))
++                        }
++                    }
++                    accountState.lastError?.let { error ->
++                        Text(
++                            text = error,
++                            fontSize = 12.sp,
++                            color = MaterialTheme.colorScheme.error
++                        )
++                    }
++                }
++            }
++
+             Button(
+                 onClick = {
+                     onSaveProfile(displayName.trim(), bio.trim(), avatarColor)
+diff --git a/app/src/main/java/com/example/ui/screens/ExploreScreen.kt b/app/src/main/java/com/example/ui/screens/ExploreScreen.kt
+index 87b4061..adce8b6 100644
+--- a/app/src/main/java/com/example/ui/screens/ExploreScreen.kt
++++ b/app/src/main/java/com/example/ui/screens/ExploreScreen.kt
+@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.height
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.layout.size
+ import androidx.compose.foundation.layout.width
++import androidx.compose.foundation.layout.widthIn
+ import androidx.compose.foundation.lazy.LazyColumn
+ import androidx.compose.foundation.lazy.LazyRow
+ import androidx.compose.foundation.lazy.items
+@@ -102,7 +103,8 @@ fun ExploreScreen(
+     LazyColumn(
+         modifier = modifier
+             .fillMaxSize()
+-            .background(MaterialTheme.colorScheme.background)
++            .background(MaterialTheme.colorScheme.background),
++        horizontalAlignment = Alignment.CenterHorizontally
+     ) {
+         // --- Stories Section ---
+         item {
+@@ -345,6 +347,7 @@ fun PostCard(
+     Card(
+         modifier = modifier
+             .fillMaxWidth()
++            .widthIn(max = 640.dp)
+             .padding(horizontal = 14.dp, vertical = 8.dp)
+             .testTag("post_card_${post.id}"),
+         shape = RoundedCornerShape(18.dp),
+@@ -557,7 +560,7 @@ fun CreatePostDialog(
+                 )
+ 
+                 Text(
+-                    text = "دسته‌بندی / Category:",
++                    text = EchoStrings.get("post_category_label", language),
+                     fontSize = 12.sp,
+                     color = MaterialTheme.colorScheme.onSurfaceVariant
+                 )
+diff --git a/app/src/main/java/com/example/ui/screens/MainScreen.kt b/app/src/main/java/com/example/ui/screens/MainScreen.kt
+index c8e7d48..f9356cf 100644
+--- a/app/src/main/java/com/example/ui/screens/MainScreen.kt
++++ b/app/src/main/java/com/example/ui/screens/MainScreen.kt
+@@ -88,6 +88,8 @@ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.draw.clip
+ import androidx.compose.ui.graphics.Color
+ import androidx.compose.ui.platform.testTag
++import androidx.compose.ui.semantics.contentDescription
++import androidx.compose.ui.semantics.semantics
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.input.ImeAction
+ import androidx.compose.ui.text.style.TextAlign
+@@ -131,6 +133,8 @@ fun MainScreen(
+     val replyingTo by viewModel.replyingTo.collectAsStateWithLifecycle()
+     val typingUser by viewModel.typingUser.collectAsStateWithLifecycle()
+     val userProfile by viewModel.userProfile.collectAsStateWithLifecycle()
++    val accountState by viewModel.accountState.collectAsStateWithLifecycle()
++    val localContext = androidx.compose.ui.platform.LocalContext.current
+ 
+     // Social & Explore state
+     val currentMainTab by viewModel.currentMainTab.collectAsStateWithLifecycle()
+@@ -162,6 +166,9 @@ fun MainScreen(
+ 
+     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+         val isWideScreen = maxWidth >= 760.dp
++        // Scale the channel list rail with the available width instead of a fixed
++        // size, so it looks right on a small tablet and on an ultra-wide desktop window.
++        val channelListWidth = (maxWidth * 0.32f).coerceIn(280.dp, 380.dp)
+ 
+         Scaffold(
+             topBar = {
+@@ -271,7 +278,7 @@ fun MainScreen(
+                             Row(modifier = Modifier.fillMaxSize()) {
+                                 Column(
+                                     modifier = Modifier
+-                                        .width(320.dp)
++                                        .width(channelListWidth)
+                                         .fillMaxHeight()
+                                         .background(MaterialTheme.colorScheme.surface)
+                                 ) {
+@@ -511,7 +518,10 @@ fun MainScreen(
+             },
+             onToggleLanguage = { viewModel.toggleLanguage() },
+             onToggleTheme = { viewModel.toggleTheme() },
+-            sheetState = sheetState
++            sheetState = sheetState,
++            accountState = accountState,
++            onSignInWithGoogle = { viewModel.signInWithGoogle(localContext) },
++            onSignOut = { viewModel.signOut() }
+         )
+     }
+ 
+@@ -641,6 +651,7 @@ fun EchoTopAppBar(
+     onClearChat: () -> Unit
+ ) {
+     var menuExpanded by remember { mutableStateOf(false) }
++    val userAvatarDescription = EchoStrings.get("user_avatar", currentLanguage)
+ 
+     val tabTitle = when (mainTab) {
+         1 -> EchoStrings.get("explore_title", currentLanguage)
+@@ -659,7 +670,7 @@ fun EchoTopAppBar(
+                 IconButton(onClick = onBackClick) {
+                     Icon(
+                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+-                        contentDescription = "Back"
++                        contentDescription = EchoStrings.get("back", currentLanguage)
+                     )
+                 }
+             } else {
+@@ -707,7 +718,7 @@ fun EchoTopAppBar(
+                                 )
+                             }
+                             IconButton(onClick = onCloseSearch) {
+-                                Icon(Icons.Default.Close, contentDescription = "Close search")
++                                Icon(Icons.Default.Close, contentDescription = EchoStrings.get("close", currentLanguage))
+                             }
+                         }
+                     }
+@@ -786,7 +797,7 @@ fun EchoTopAppBar(
+                 IconButton(onClick = onToggleTheme) {
+                     Icon(
+                         imageVector = if (isDarkMode == true) Icons.Default.LightMode else Icons.Default.DarkMode,
+-                        contentDescription = "Theme"
++                        contentDescription = EchoStrings.get("theme_toggle", currentLanguage)
+                     )
+                 }
+ 
+@@ -798,7 +809,8 @@ fun EchoTopAppBar(
+                         .clip(CircleShape)
+                         .background(Color(userAvatarColor))
+                         .clickable { onOpenProfile() }
+-                        .testTag("user_profile_avatar"),
++                        .testTag("user_profile_avatar")
++                        .semantics { contentDescription = userAvatarDescription },
+                     contentAlignment = Alignment.Center
+                 ) {
+                     Text(
+@@ -812,7 +824,7 @@ fun EchoTopAppBar(
+                 // Overflow Menu
+                 Box {
+                     IconButton(onClick = { menuExpanded = true }) {
+-                        Icon(Icons.Default.MoreVert, contentDescription = "More")
++                        Icon(Icons.Default.MoreVert, contentDescription = EchoStrings.get("more_options", currentLanguage))
+                     }
+                     DropdownMenu(
+                         expanded = menuExpanded,
+diff --git a/app/src/main/java/com/example/ui/screens/ProfileScreen.kt b/app/src/main/java/com/example/ui/screens/ProfileScreen.kt
+index d948135..b890ad7 100644
+--- a/app/src/main/java/com/example/ui/screens/ProfileScreen.kt
++++ b/app/src/main/java/com/example/ui/screens/ProfileScreen.kt
+@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.height
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.layout.size
+ import androidx.compose.foundation.layout.width
++import androidx.compose.foundation.layout.widthIn
+ import androidx.compose.foundation.lazy.LazyColumn
+ import androidx.compose.foundation.lazy.items
+ import androidx.compose.foundation.shape.CircleShape
+@@ -72,13 +73,15 @@ fun ProfileScreen(
+     LazyColumn(
+         modifier = modifier
+             .fillMaxSize()
+-            .background(MaterialTheme.colorScheme.background)
++            .background(MaterialTheme.colorScheme.background),
++        horizontalAlignment = Alignment.CenterHorizontally
+     ) {
+         item {
+             // Profile Header Card
+             Card(
+                 modifier = Modifier
+                     .fillMaxWidth()
++                    .widthIn(max = 480.dp)
+                     .padding(14.dp),
+                 shape = RoundedCornerShape(22.dp),
+                 colors = CardDefaults.cardColors(
+@@ -165,6 +168,7 @@ fun ProfileScreen(
+             Card(
+                 modifier = Modifier
+                     .fillMaxWidth()
++                    .widthIn(max = 480.dp)
+                     .padding(horizontal = 14.dp, vertical = 6.dp),
+                 shape = RoundedCornerShape(18.dp),
+                 colors = CardDefaults.cardColors(
+@@ -224,10 +228,13 @@ fun ProfileScreen(
+         // Section Title: My Posts
+         item {
+             Text(
+-                text = "پست‌های به اشتراک گذاشته شده / Shared Posts",
++                text = EchoStrings.get("my_shared_posts_title", language),
+                 style = MaterialTheme.typography.titleMedium,
+                 fontWeight = FontWeight.Bold,
+-                modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 14.dp, bottom = 6.dp)
++                modifier = Modifier
++                    .fillMaxWidth()
++                    .widthIn(max = 640.dp)
++                    .padding(start = 18.dp, end = 18.dp, top = 14.dp, bottom = 6.dp)
+             )
+         }
+ 
+diff --git a/app/src/main/java/com/example/ui/screens/SavedPostsScreen.kt b/app/src/main/java/com/example/ui/screens/SavedPostsScreen.kt
+index 15d2841..1b95c18 100644
+--- a/app/src/main/java/com/example/ui/screens/SavedPostsScreen.kt
++++ b/app/src/main/java/com/example/ui/screens/SavedPostsScreen.kt
+@@ -79,7 +79,8 @@ fun SavedPostsScreen(
+         } else {
+             LazyColumn(
+                 modifier = Modifier.fillMaxSize(),
+-                contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 16.dp)
++                contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 16.dp),
++                horizontalAlignment = Alignment.CenterHorizontally
+             ) {
+                 items(savedPosts, key = { it.id }) { post ->
+                     PostCard(
+diff --git a/app/src/main/java/com/example/util/Localization.kt b/app/src/main/java/com/example/util/Localization.kt
+index a0ee0fb..339dab6 100644
+--- a/app/src/main/java/com/example/util/Localization.kt
++++ b/app/src/main/java/com/example/util/Localization.kt
+@@ -104,7 +104,23 @@ object EchoStrings {
+         "view_story" to "مشاهده استوری",
+         "cancel" to "لغو",
+         "saved_posts_title" to "پست‌های ذخیره‌شده و نشان‌ها",
+-        "no_saved_posts" to "هیچ پستی ذخیره نشده است. با زدن علامت نشان، پست‌ها را اینجا ببینید."
++        "no_saved_posts" to "هیچ پستی ذخیره نشده است. با زدن علامت نشان، پست‌ها را اینجا ببینید.",
++        "post_category_label" to "دسته‌بندی",
++        "channel_icon_label" to "آیکون کانال",
++        "contact_name_label" to "نام مخاطب",
++        "suggested_contacts_label" to "مخاطبین پیشنهادی",
++        "avatar_color_label" to "رنگ نمایه",
++        "my_shared_posts_title" to "پست‌های اشتراک‌گذاری‌شده من",
++        "close" to "بستن",
++        "back" to "بازگشت",
++        "more_options" to "گزینه‌های بیشتر",
++        "theme_toggle" to "تغییر پوسته",
++        "user_avatar" to "نمایه کاربر",
++        "cloud_account_title" to "حساب ابری",
++        "cloud_account_signed_in_as" to "وارد شده با",
++        "cloud_account_sign_in" to "ورود با گوگل برای همگام‌سازی",
++        "cloud_account_sign_out" to "خروج از حساب",
++        "cloud_account_unavailable" to "همگام‌سازی ابری برای این نسخه پیکربندی نشده است."
+     )
+ 
+     private val enStrings = mapOf(
+@@ -203,7 +219,23 @@ object EchoStrings {
+         "view_story" to "View story",
+         "cancel" to "Cancel",
+         "saved_posts_title" to "Saved & Bookmarked Posts",
+-        "no_saved_posts" to "No saved posts yet. Tap the bookmark icon on any post to save it here."
++        "no_saved_posts" to "No saved posts yet. Tap the bookmark icon on any post to save it here.",
++        "post_category_label" to "Category",
++        "channel_icon_label" to "Channel Icon",
++        "contact_name_label" to "Contact Name",
++        "suggested_contacts_label" to "Suggested Contacts",
++        "avatar_color_label" to "Avatar Color",
++        "my_shared_posts_title" to "My Shared Posts",
++        "close" to "Close",
++        "back" to "Back",
++        "more_options" to "More options",
++        "theme_toggle" to "Toggle theme",
++        "user_avatar" to "User avatar",
++        "cloud_account_title" to "Cloud Account",
++        "cloud_account_signed_in_as" to "Signed in as",
++        "cloud_account_sign_in" to "Sign in with Google to sync",
++        "cloud_account_sign_out" to "Sign out",
++        "cloud_account_unavailable" to "Cloud sync is not configured for this build."
+     )
+ 
+     fun get(key: String, language: AppLanguage): String {
+diff --git a/app/src/test/java/com/example/EchoChatLocalizationTest.kt b/app/src/test/java/com/example/EchoChatLocalizationTest.kt
+index 30e3b3e..add7660 100644
+--- a/app/src/test/java/com/example/EchoChatLocalizationTest.kt
++++ b/app/src/test/java/com/example/EchoChatLocalizationTest.kt
+@@ -36,4 +36,27 @@ class EchoChatLocalizationTest {
+         assertEquals("استوری من", EchoStrings.get("my_story", AppLanguage.PERSIAN))
+         assertEquals("My story", EchoStrings.get("my_story", AppLanguage.ENGLISH))
+     }
++
++    @Test
++    fun testNewlyLocalizedStringsHaveBothLanguages() {
++        val keysRequiringBothLanguages = listOf(
++            "post_category_label",
++            "channel_icon_label",
++            "contact_name_label",
++            "suggested_contacts_label",
++            "avatar_color_label",
++            "my_shared_posts_title",
++            "cloud_account_title",
++            "cloud_account_sign_in",
++            "cloud_account_sign_out"
++        )
++        keysRequiringBothLanguages.forEach { key ->
++            val fa = EchoStrings.get(key, AppLanguage.PERSIAN)
++            val en = EchoStrings.get(key, AppLanguage.ENGLISH)
++            assertNotNull("Missing Persian string for key: $key", fa)
++            assertNotNull("Missing English string for key: $key", en)
++            assert(fa.isNotBlank()) { "Persian string for key $key must not be blank" }
++            assert(en.isNotBlank()) { "English string for key $key must not be blank" }
++        }
++    }
+ }
+diff --git a/gradle/libs.versions.toml b/gradle/libs.versions.toml
+index cb0d62f..9c508fd 100644
+--- a/gradle/libs.versions.toml
++++ b/gradle/libs.versions.toml
+@@ -23,6 +23,7 @@ retrofit = "2.12.0"
+ converterMoshi = "2.12.0"
+ kotlinxCoroutinesAndroid = "1.10.2"
+ kotlinxCoroutinesCore = "1.10.2"
++kotlinxCoroutinesPlayServices = "1.10.2"
+ accompanistPermissions = "0.37.3"
+ playServicesLocation = "21.3.0"
+ cameraCamera2 = "1.5.0"
+@@ -73,6 +74,7 @@ retrofit = { group = "com.squareup.retrofit2", name = "retrofit", version.ref =
+ converter-moshi = { group = "com.squareup.retrofit2", name = "converter-moshi", version.ref = "converterMoshi" }
+ kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "kotlinxCoroutinesAndroid" }
+ kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "kotlinxCoroutinesCore" }
++kotlinx-coroutines-play-services = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-play-services", version.ref = "kotlinxCoroutinesPlayServices" }
+ accompanist-permissions = { group = "com.google.accompanist", name = "accompanist-permissions", version.ref = "accompanistPermissions" }
+ play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }
+ androidx-camera-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "cameraCamera2" }
+-- 
+2.43.0
+

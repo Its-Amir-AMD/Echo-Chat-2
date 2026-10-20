@@ -1,0 +1,6 @@
+{
+  "name": "EchoChat",
+  "description": "Native real-time messaging application with bilingual Persian and English support, Firebase Firestore, and Google Sign-In.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
