@@ -60,6 +60,12 @@ class FirestoreSyncManager(
         dao.deleteAllProfiles()
     }
 
+    /** On first sign-in, discard only legacy local-only direct conversations. */
+    suspend fun clearUnbackedPrivateConversations() {
+        dao.deleteAllDirectMessages()
+        dao.deleteAllPrivateChannelsExceptLocalAssistant()
+    }
+
     /** Start the live cloud listeners for the signed-in account. */
     fun start(userId: String, displayName: String?) {
         require(userId.isNotBlank()) { "A signed-in user id is required to start sync." }
