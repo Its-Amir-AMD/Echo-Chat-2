@@ -26,7 +26,7 @@ import java.util.UUID
         StoryEntity::class,
         CommentEntity::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 abstract class EchoDatabase : RoomDatabase() {
@@ -130,6 +130,12 @@ abstract class EchoDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE channels ADD COLUMN peerId TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         @Volatile
         private var INSTANCE: EchoDatabase? = null
 
@@ -150,7 +156,7 @@ abstract class EchoDatabase : RoomDatabase() {
                             }
                         }
                     })
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                     .build()
                 INSTANCE = instance
                 instance
