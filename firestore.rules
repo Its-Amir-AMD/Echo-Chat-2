@@ -25,9 +25,13 @@ service cloud.firestore {
         && resource.data.isDirectMessage == false
         && request.resource.data.id == channelId
         && request.resource.data.isDirectMessage == false
-        && request.resource.data.name is string
-        && request.resource.data.name.size() > 0
-        && request.resource.data.name.size() <= 100;
+        && request.resource.data.name == resource.data.name
+        && request.resource.data.description == resource.data.description
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['lastMessage', 'lastMessageTime'])
+        && request.resource.data.lastMessage is string
+        && request.resource.data.lastMessage.size() <= 10000
+        && request.resource.data.lastMessageTime is int;
       allow delete: if false;
 
       match /messages/{messageId} {
