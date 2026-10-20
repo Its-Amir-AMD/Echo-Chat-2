@@ -1,11 +1,32 @@
 # EchoChat
 
-Native Android messenger built with Kotlin, Jetpack Compose, Room, Firebase Authentication and Cloud Firestore.
+EchoChat is a native Android messenger built with Kotlin, Jetpack Compose, Room and a self-hosted PHP/MySQL API.
 
-**Current status:** cloud messaging MVP in `feat/cloud-auth-messenger-mvp`. It includes email/password registration with unique usernames, Google sign-in, password reset, cross-account public rooms, and membership-protected private conversations using usernames. Firebase must be configured and cross-device tests must pass before this can be treated as a release.
+## Current branch
 
-- [Android source and build instructions](echochat-fixed-source/README.md)
-- [Firebase setup guide (Persian)](echochat-fixed-source/app/FIREBASE_SETUP.md)
-- [Firestore security rules](firestore.rules)
+The PHP/MySQL backend version is being developed in feat/php-mysql-backend-v2. It replaces Firebase for email/password registration, login, public rooms, username lookup, private two-person conversations, and message synchronization.
 
-Without Firebase configuration, the app displays setup instructions rather than presenting local demo content as a real server-connected messenger.
+## Main folders
+
+- Android source: echochat-fixed-source/
+- PHP REST API and deployment notes: server/
+- MySQL schema: server/database/schema.sql
+- Android API client: echochat-fixed-source/app/src/main/java/com/example/data/remote/PhpApiClient.kt
+
+## Try it
+
+1. Deploy the PHP API to a hosting account with PHP 8.1+, PDO MySQL and HTTPS.
+2. Import the SQL schema and set private database credentials outside the public web root.
+3. Check the API health endpoint at your server URL plus /health.
+4. Install the Android app and enter the base URL of the folder containing index.php.
+5. Register two different accounts on separate devices to test public and private messaging.
+
+See server/README.md for step-by-step setup and security notes.
+
+## Build
+
+Use Android Studio with JDK 21. From the echochat-fixed-source folder, run the Gradle tasks testDebugUnitTest, lintDebug, and assembleDebug. GitHub Actions also runs these checks and uploads a debug APK.
+
+## Limitations
+
+This is an MVP, not yet a production-ready release. Email verification and password reset, rate limiting, moderation, account deletion/privacy workflows, push notifications, WebSockets, end-to-end encryption, media uploads, read/delivery receipts and online presence are not included. Explore posts, stories, comments, profile editing, and Echo AI are not synchronized by this API. Test on two accounts/devices and review the security/rate-limit requirements before publishing.
