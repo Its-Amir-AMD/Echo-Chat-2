@@ -38,6 +38,10 @@ import java.security.SecureRandom
 class FirebaseAuthManager(
     private val webClientId: String = DEFAULT_WEB_CLIENT_ID
 ) {
+    @Volatile
+    var isRegistrationInProgress: Boolean = false
+        private set
+
     private val auth: FirebaseAuth
         get() = FirebaseAuth.getInstance()
 
@@ -84,9 +88,13 @@ class FirebaseAuthManager(
             "Username must be 3–24 characters using only letters, numbers, and underscores."
         }
 
-        val user = auth.createUserWithEmailAndPassword(email.trim(), password).await().user
-            ?: throw IllegalStateException("Firebase did not create the account.")
+        isRegistrationInProgress = true
+        var createdUser: FirebaseUser? = null
         try {
+            val user = auth.createUserWithEmailAndPassword(email.trim(), password).await().user
+                ?: throw IllegalStateException("Firebase did not create the account.")
+            createdUser = user
+
             val name = displayName.trim().ifEmpty { normalizedUsername }
             user.updateProfile(
                 UserProfileChangeRequest.Builder().setDisplayName(name).build()
@@ -95,9 +103,11 @@ class FirebaseAuthManager(
             return auth.currentUser ?: user
         } catch (error: Exception) {
             // Do not leave a half-registered account when a username reservation failed.
-            runCatching { user.delete().await() }
+            createdUser?.let { runCatching { it.delete().await() } }
             auth.signOut()
             throw error
+        } finally {
+            isRegistrationInProgress = false
         }
     }
 
