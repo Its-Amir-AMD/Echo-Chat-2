@@ -23,6 +23,9 @@ interface EchoChatDao {
     @Query("SELECT * FROM channels WHERE id = :channelId LIMIT 1")
     fun getChannelById(channelId: String): Flow<ChannelEntity?>
 
+    @Query("SELECT * FROM channels WHERE id = :channelId LIMIT 1")
+    suspend fun getChannelByIdOnce(channelId: String): ChannelEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertChannel(channel: ChannelEntity)
 
