@@ -116,6 +116,25 @@ interface EchoChatDao {
     @Query("DELETE FROM post_comments WHERE id = :commentId")
     suspend fun deleteComment(commentId: String)
 
+    // Account-local content must not be exposed when a different account uses this device.
+    @Query("DELETE FROM messages WHERE channelId IN (SELECT id FROM channels WHERE isDirectMessage = 1)")
+    suspend fun deleteAllDirectMessages()
+
+    @Query("DELETE FROM channels WHERE isDirectMessage = 1 AND id != 'bot_echo'")
+    suspend fun deleteAllPrivateChannelsExceptLocalAssistant()
+
+    @Query("DELETE FROM post_comments")
+    suspend fun deleteAllComments()
+
+    @Query("DELETE FROM social_posts")
+    suspend fun deleteAllPosts()
+
+    @Query("DELETE FROM user_stories")
+    suspend fun deleteAllStories()
+
+    @Query("DELETE FROM user_profile")
+    suspend fun deleteAllProfiles()
+
     // --- Stories ---
     @Query("SELECT * FROM user_stories ORDER BY timestamp DESC")
     fun getAllStories(): Flow<List<StoryEntity>>
