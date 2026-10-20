@@ -7,12 +7,9 @@ import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialException
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
-import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
-private val auth: FirebaseAuth
-    get() = FirebaseAuth.getInstance()
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -40,7 +37,7 @@ class FirebaseAuthManager(
     private val webClientId: String = DEFAULT_WEB_CLIENT_ID
 ) {
     private val auth: FirebaseAuth
-        get() = Firebase.auth
+        get() = FirebaseAuth.getInstance()
 
     val currentUser: FirebaseUser?
         get() = runCatching { auth.currentUser }.getOrNull()
