@@ -120,6 +120,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         _accountState.value = _accountState.value.copy(isBusy = true, lastError = null, lastMessage = null)
         viewModelScope.launch {
             runCatching { manager.signInWithEmail(email, password) }
+                .onSuccess { user -> updateSignedInAccount(user) }
                 .onFailure { e ->
                     _accountState.value = _accountState.value.copy(
                         isBusy = false,
@@ -137,6 +138,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         _accountState.value = _accountState.value.copy(isBusy = true, lastError = null, lastMessage = null)
         viewModelScope.launch {
             runCatching { manager.createAccountWithEmail(email, password, displayName) }
+                .onSuccess { user -> updateSignedInAccount(user) }
                 .onFailure { e ->
                     _accountState.value = _accountState.value.copy(
                         isBusy = false,
@@ -172,6 +174,17 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     fun signOut() {
         authManager?.signOut()
         syncManager?.stop()
+    }
+
+    private fun updateSignedInAccount(user: com.google.firebase.auth.FirebaseUser) {
+        _accountState.value = AccountUiState(
+            isCloudAvailable = true,
+            isSignedIn = true,
+            userId = user.uid,
+            displayName = user.displayName,
+            email = user.email,
+            isBusy = false
+        )
     }
 
     val channels: StateFlow<List<ChannelEntity>> = repository.allChannels
@@ -342,9 +355,9 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 channelId = currentChannel,
                 content = content,
                 replyToId = reply?.id,
-                replyToSnippet = reply?.content?.take(40)
-                ,senderId = _accountState.value.userId ?: "local-device"
-                ,senderName = _accountState.value.displayName?.takeIf { it.isNotBlank() } ?: "Echo User"
+                replyToSnippet = reply?.content?.take(40),
+                senderId = _accountState.value.userId ?: "local-device",
+                senderName = _accountState.value.displayName?.takeIf { it.isNotBlank() } ?: "Echo User"
             )
             _replyingTo.value = null
         }
