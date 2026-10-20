@@ -410,6 +410,13 @@ fun ProfileAndSettingsSheet(
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        accountState.username?.let { handle ->
+                            Text(
+                                text = (if (currentLanguage == AppLanguage.PERSIAN) "نام کاربری شما: @" else "Your username: @") + handle,
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
                         OutlinedButton(
                             onClick = onSignOut,
                             modifier = Modifier.fillMaxWidth()
