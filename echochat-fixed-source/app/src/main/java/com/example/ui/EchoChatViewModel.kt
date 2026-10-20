@@ -70,20 +70,26 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 .onEach { user ->
                     if (user != null) {
                         newSyncManager.start(user.uid, user.displayName)
+                        val registrationPending = newAuthManager.isRegistrationInProgress
                         _accountState.value = AccountUiState(
                             isCloudAvailable = true,
-                            isSignedIn = true,
+                            isSignedIn = !registrationPending,
                             userId = user.uid,
                             displayName = user.displayName,
                             email = user.email,
-                            isBusy = false
+                            isBusy = registrationPending
                         )
-                        viewModelScope.launch {
-                            runCatching {
-                                newSyncManager.ensureOwnDirectoryProfile(user.uid, user.displayName)
-                            }.onSuccess { username ->
-                                if (_accountState.value.userId == user.uid) {
-                                    _accountState.value = _accountState.value.copy(username = username)
+                        if (!registrationPending) {
+                            viewModelScope.launch {
+                                runCatching {
+                                    newSyncManager.ensureOwnDirectoryProfile(user.uid, user.displayName)
+                                }.onSuccess { username ->
+                                    if (_accountState.value.userId == user.uid) {
+                                        _accountState.value = _accountState.value.copy(
+                                            username = username,
+                                            isBusy = false
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -146,7 +152,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         _accountState.value = _accountState.value.copy(isBusy = true, lastError = null, lastMessage = null)
         viewModelScope.launch {
             runCatching { manager.createAccountWithEmail(email, password, displayName, username) }
-                .onSuccess { user -> updateSignedInAccount(user) }
+                .onSuccess { user -> updateSignedInAccount(user, username) }
                 .onFailure { e ->
                     _accountState.value = _accountState.value.copy(
                         isBusy = false,
@@ -184,16 +190,21 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         syncManager?.stop()
     }
 
-    private fun updateSignedInAccount(user: com.google.firebase.auth.FirebaseUser) {
+    private fun updateSignedInAccount(
+        user: com.google.firebase.auth.FirebaseUser,
+        username: String? = null
+    ) {
         _accountState.value = AccountUiState(
             isCloudAvailable = true,
             isSignedIn = true,
             userId = user.uid,
+            username = username,
             displayName = user.displayName,
             email = user.email,
             isBusy = false
         )
     }
+
 
     val channels: StateFlow<List<ChannelEntity>> = repository.allChannels
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -407,6 +418,13 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
 
         viewModelScope.launch {
             try {
+                val ensuredUsername = manager.ensureOwnDirectoryProfile(
+                    currentUserId,
+                    account.displayName?.takeIf { it.isNotBlank() } ?: account.email ?: "Echo User"
+                )
+                if (_accountState.value.userId == currentUserId) {
+                    _accountState.value = _accountState.value.copy(username = ensuredUsername)
+                }
                 val peer = manager.findPublicUserByUsername(username)
                     ?: throw IllegalArgumentException("No account was found for @" + username + ".")
                 require(peer.uid != currentUserId) { "You cannot start a conversation with your own account." }
