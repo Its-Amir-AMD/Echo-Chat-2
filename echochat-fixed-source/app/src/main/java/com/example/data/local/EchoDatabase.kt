@@ -119,6 +119,7 @@ abstract class EchoDatabase : RoomDatabase() {
                 db.execSQL("DELETE FROM social_posts WHERE id IN ('post_1', 'post_2', 'post_3', 'post_4')")
                 db.execSQL("DELETE FROM user_stories WHERE id IN ('story_1', 'story_2', 'story_3', 'story_4')")
                 db.execSQL("DELETE FROM channels WHERE id = 'dm_sara'")
+                db.execSQL("UPDATE channels SET lastMessage = '', lastMessageTime = 0 WHERE id IN ('general', 'tech', 'design', 'bot_echo')")
             }
         }
 
