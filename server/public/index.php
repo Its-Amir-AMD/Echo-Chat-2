@@ -364,6 +364,87 @@ try {
 
     $user = auth_user($db);
 
+
+    // Echo AI is proxied by PHP to an OpenAI-compatible provider; secrets never reach Android.
+    if ($method === 'POST' && $path === '/ai/reply') {
+        $prompt = required_string($data, 'prompt', 6000);
+        if (preg_match('//u', $prompt) !== 1) fail(422, 'Prompt contains invalid text encoding.');
+
+        $aiEndpoint = trim((string)($config['ai_endpoint'] ?? ''));
+        $aiApiKey = trim((string)($config['ai_api_key'] ?? ''));
+        $aiModel = trim((string)($config['ai_model'] ?? ''));
+        if ($aiEndpoint === '' || $aiApiKey === '' || $aiModel === '' ||
+            str_starts_with($aiApiKey, 'CHANGE_ME')) {
+            fail(503, 'Echo AI is not configured on the PHP server.');
+        }
+        $endpointParts = parse_url($aiEndpoint);
+        if (!is_array($endpointParts) || ($endpointParts['scheme'] ?? '') !== 'https' ||
+            empty($endpointParts['host']) || isset($endpointParts['user']) ||
+            isset($endpointParts['pass']) || isset($endpointParts['fragment'])) {
+            fail(503, 'AI provider endpoint must be a valid HTTPS URL.');
+        }
+        if (!function_exists('curl_init')) {
+            fail(503, 'PHP cURL extension is required for Echo AI.');
+        }
+
+        $payload = [
+            'model' => $aiModel,
+            'messages' => [
+                [
+                    'role' => 'system',
+                    'content' => 'You are Echo AI, a helpful assistant inside the Echo Chat app. Answer clearly and respectfully. Reply in the same language as the user unless they request another language.'
+                ],
+                ['role' => 'user', 'content' => $prompt],
+            ],
+            'temperature' => 0.7,
+            'max_tokens' => 800,
+        ];
+        try {
+            $encodedPayload = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        } catch (JsonException) {
+            fail(422, 'Could not encode the AI request.');
+        }
+        $handle = curl_init($aiEndpoint);
+        curl_setopt_array($handle, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => $encodedPayload,
+            CURLOPT_HTTPHEADER => [
+                'Content-Type: application/json',
+                'Accept: application/json',
+                'Authorization: Bearer ' . $aiApiKey,
+            ],
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CONNECTTIMEOUT => 8,
+            CURLOPT_TIMEOUT => 35,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_MAXREDIRS => 0,
+        ]);
+        $rawResponse = curl_exec($handle);
+        $curlErrno = curl_errno($handle);
+        $httpStatus = (int)curl_getinfo($handle, CURLINFO_RESPONSE_CODE);
+        curl_close($handle);
+        if ($rawResponse === false || $curlErrno !== 0) {
+            error_log('EchoChat AI provider connection failed; cURL errno ' . $curlErrno);
+            fail(502, 'AI provider could not be reached. Please try again.');
+        }
+        if ($httpStatus < 200 || $httpStatus >= 300) {
+            error_log('EchoChat AI provider returned HTTP ' . $httpStatus);
+            fail(502, 'AI provider returned an error. Please try again later.');
+        }
+        try {
+            $providerData = json_decode($rawResponse, true, 32, JSON_THROW_ON_ERROR);
+        } catch (JsonException) {
+            fail(502, 'AI provider returned an invalid response.');
+        }
+        $reply = $providerData['choices'][0]['message']['content'] ?? null;
+        if (!is_string($reply) || trim($reply) === '') {
+            fail(502, 'AI provider returned an empty response.');
+        }
+        ok(['reply' => mb_substr_safe(trim($reply), 12000)]);
+    }
+
     if ($method === 'GET' && $path === '/users') {
         $username = strtolower(trim((string)($_GET['username'] ?? '')));
         if (!preg_match('/^[a-z0-9_]{3,24}$/', $username)) fail(422, 'Provide a valid username query parameter.');
