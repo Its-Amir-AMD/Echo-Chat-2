@@ -13,7 +13,7 @@ Native Android application built with Kotlin, Jetpack Compose, Room, coroutines 
 
 ## Server setup
 
-Follow the steps in ../server/README.md. The API URL in the app must point to the folder containing index.php, for example https://yourdomain.com/echochat-api. The backend health route at URL + /health should return ok: true and database: connected.
+Follow the steps in ../server/README.md. The app defaults to `https://chat.userdesk.ir/chat` and calls the API routes directly (it does not embed the website in a WebView). The URL must use HTTPS and point to the folder containing `index.php`. Its health route at URL + `/health` should return `ok: true` and `database: connected`. Do not use the HTTP URL for accounts or messaging because credentials and bearer tokens would be sent without transport encryption.
 
 The SQL schema seeds three public rooms: general, technology and help. You can customize their names and descriptions in the rooms table after installation.
 

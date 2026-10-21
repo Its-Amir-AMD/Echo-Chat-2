@@ -66,7 +66,10 @@ class PhpApiClient(context: Context) {
         .build()
 
     val currentServerUrl: String
-        get() = prefs.getString(KEY_BASE_URL, "").orEmpty()
+        get() = prefs.getString(KEY_BASE_URL, null)
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?: DEFAULT_BASE_URL
 
     val isConfigured: Boolean
         get() = currentServerUrl.isNotBlank()
@@ -295,6 +298,7 @@ class PhpApiClient(context: Context) {
     private fun encode(value: String) = java.net.URLEncoder.encode(value, Charsets.UTF_8.name())
 
     companion object {
+        private const val DEFAULT_BASE_URL = "https://chat.userdesk.ir/chat"
         private const val KEY_BASE_URL = "base_url"
         private const val KEY_TOKEN = "access_token"
         private const val KEY_USER_ID = "user_id"
