@@ -18,7 +18,10 @@ import java.util.UUID
 
 class EchoChatRepository(
     private val dao: EchoChatDao,
-    private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO)
+    private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO),
+    private val aiService: EchoAiService = EchoAiService {
+        throw IllegalStateException("برای استفاده از دستیار هوشمند، سرور PHP و سرویس هوش مصنوعی را پیکربندی کنید.")
+    }
 ) {
     val allChannels: Flow<List<ChannelEntity>> = dao.getAllChannels()
     val userProfile: Flow<UserProfileEntity?> = dao.getUserProfile()
@@ -83,7 +86,7 @@ class EchoChatRepository(
             val assistantName = "Echo AI"
             _typingStatus.value = _typingStatus.value + (channelId to assistantName)
             try {
-                val replyText = EchoAiService().generateReply(userText)
+                val replyText = aiService.generateReply(userText)
                 val now = System.currentTimeMillis()
                 val reply = MessageEntity(
                     id = UUID.randomUUID().toString(),
@@ -103,7 +106,7 @@ class EchoChatRepository(
             } catch (_: Exception) {
                 // Do not represent a canned response as AI output.
                 val now = System.currentTimeMillis()
-                val explanation = "پاسخ هوش مصنوعی در دسترس نیست. تنظیمات Firebase AI و App Check را بررسی کنید. / AI unavailable: check Firebase AI and App Check configuration."
+                val explanation = "پاسخ هوش مصنوعی در دسترس نیست. اتصال سرور PHP و تنظیمات ارائه‌دهندهٔ هوش مصنوعی را بررسی کنید."
                 dao.insertMessage(
                     MessageEntity(
                         id = UUID.randomUUID().toString(),
