@@ -185,7 +185,10 @@ function social_comment_payload(array $row): array {
  * Only HMACs of identity/IP are persisted; raw identifiers are not logged here.
  */
 function auth_rate_hash(array $config, string $value): string {
-    $key = (string)($config['rate_limit_hmac_key'] ?? $config['db_password'] ?? '');
+    $key = trim((string)($config['rate_limit_hmac_key'] ?? ''));
+    if ($key === '' || str_starts_with($key, 'CHANGE_ME') || strlen($key) < 32) {
+        $key = (string)($config['db_password'] ?? '');
+    }
     if (strlen($key) < 32) $key = hash('sha256', $key . '|EchoChat authentication throttling');
     return hash_hmac('sha256', $value, $key);
 }
