@@ -54,7 +54,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     init {
         val database = EchoDatabase.getInstance(application)
         dao = database.chatDao()
-        repository = EchoChatRepository(dao, viewModelScope)
+        repository = EchoChatRepository(dao, viewModelScope) { prompt -> api.generateAIReply(prompt) }
 
         if (!api.isConfigured) {
             _accountState.value = AccountUiState(isCloudAvailable = false)

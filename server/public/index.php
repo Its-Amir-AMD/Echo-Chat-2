@@ -179,6 +179,77 @@ function social_comment_payload(array $row): array {
     ];
 }
 
+
+/**
+ * Server-side throttling for authentication endpoints.
+ * Only HMACs of identity/IP are persisted; raw identifiers are not logged here.
+ */
+function auth_rate_hash(array $config, string $value): string {
+    $key = trim((string)($config['rate_limit_hmac_key'] ?? ''));
+    if ($key === '' || str_starts_with($key, 'CHANGE_ME') || strlen($key) < 32) {
+        $key = (string)($config['db_password'] ?? '');
+    }
+    if (strlen($key) < 32) $key = hash('sha256', $key . '|EchoChat authentication throttling');
+    return hash_hmac('sha256', $value, $key);
+}
+function auth_rate_context(array $config, string $action, string $identity): array {
+    $ip = trim((string)($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
+    if (!filter_var($ip, FILTER_VALIDATE_IP)) $ip = 'unknown';
+    return [
+        'action' => $action,
+        'identity_hash' => auth_rate_hash($config, $action . ':' . strtolower(trim($identity))),
+        'ip_hash' => auth_rate_hash($config, 'ip:' . $ip),
+    ];
+}
+function enforce_auth_rate_limit(
+    PDO $db,
+    array $config,
+    string $action,
+    string $identity,
+    int $identityLimit,
+    int $ipLimit,
+    int $windowSeconds
+): array {
+    $context = auth_rate_context($config, $action, $identity);
+    $cutoff = gmdate('Y-m-d H:i:s', time() - $windowSeconds);
+    $failureOnly = $action === 'login' ? ' AND was_successful = 0' : '';
+
+    $identityQuery = $db->prepare(
+        'SELECT COUNT(*) FROM auth_attempts WHERE action = ? AND identity_hash = ? AND attempted_at >= ?' . $failureOnly
+    );
+    $identityQuery->execute([$action, $context['identity_hash'], $cutoff]);
+    $identityCount = (int)$identityQuery->fetchColumn();
+
+    $ipQuery = $db->prepare(
+        'SELECT COUNT(*) FROM auth_attempts WHERE action = ? AND ip_hash = ? AND attempted_at >= ?' . $failureOnly
+    );
+    $ipQuery->execute([$action, $context['ip_hash'], $cutoff]);
+    $ipCount = (int)$ipQuery->fetchColumn();
+
+    if ($identityCount >= $identityLimit || $ipCount >= $ipLimit) {
+        header('Retry-After: ' . $windowSeconds);
+        fail(429, 'Too many authentication attempts. Please try again later.');
+    }
+    return $context;
+}
+function record_auth_attempt(PDO $db, array $context, bool $successful): void {
+    $stmt = $db->prepare(
+        'INSERT INTO auth_attempts (action, identity_hash, ip_hash, was_successful, attempted_at)
+         VALUES (?, ?, ?, ?, UTC_TIMESTAMP())'
+    );
+    $stmt->execute([
+        $context['action'],
+        $context['identity_hash'],
+        $context['ip_hash'],
+        $successful ? 1 : 0,
+    ]);
+
+    // Bounded, probabilistic cleanup avoids running a table-wide delete for every request.
+    if (random_int(1, 50) === 1) {
+        $db->exec('DELETE FROM auth_attempts WHERE attempted_at < UTC_TIMESTAMP() - INTERVAL 2 DAY');
+    }
+}
+
 try {
     // Works both when public/ is the document root and when its contents are
     // deployed into a subfolder such as public_html/echochat-api/.
@@ -244,14 +315,17 @@ try {
         $displayName = required_string($data, 'display_name', 80);
         $password = $data['password'] ?? '';
         if (!is_string($password) || strlen($password) < 8 || strlen($password) > 200) fail(422, 'Password must be 8–200 characters.');
+        $rateContext = enforce_auth_rate_limit($db, $config, 'register', $email, 5, 12, 3600);
         $id = new_id();
         try {
             $stmt = $db->prepare('INSERT INTO users (id, email, username, display_name, password_hash) VALUES (?, ?, ?, ?, ?)');
             $stmt->execute([$id, $email, $username, $displayName, password_hash($password, PASSWORD_DEFAULT)]);
         } catch (PDOException $e) {
+            record_auth_attempt($db, $rateContext, false);
             if ($e->getCode() === '23000') fail(409, 'Email address or username is already registered.');
             throw $e;
         }
+        record_auth_attempt($db, $rateContext, true);
         $user = find_user_by_id($db, $id);
         $token = issue_token($db, $id, (int)($config['token_ttl_seconds'] ?? 2592000));
         ok(['token' => $token, 'user' => $user], 201);
@@ -259,12 +333,17 @@ try {
 
     if ($method === 'POST' && $path === '/auth/login') {
         $email = strtolower(required_string($data, 'email', 254));
+        $rateContext = enforce_auth_rate_limit($db, $config, 'login', $email, 8, 35, 900);
         $password = $data['password'] ?? '';
         if (!is_string($password) || $password === '') fail(422, 'Email and password are required.');
         $stmt = $db->prepare('SELECT id, password_hash FROM users WHERE email = ? LIMIT 1');
         $stmt->execute([$email]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        if (!$row || !password_verify($password, (string)$row['password_hash'])) fail(401, 'Invalid email or password.');
+        if (!$row || !password_verify($password, (string)$row['password_hash'])) {
+            record_auth_attempt($db, $rateContext, false);
+            fail(401, 'Invalid email or password.');
+        }
+        record_auth_attempt($db, $rateContext, true);
         $db->prepare('UPDATE users SET last_login_at = UTC_TIMESTAMP() WHERE id = ?')->execute([$row['id']]);
         ok(['token' => issue_token($db, (string)$row['id'], (int)($config['token_ttl_seconds'] ?? 2592000)), 'user' => find_user_by_id($db, (string)$row['id'])]);
     }
@@ -284,6 +363,87 @@ try {
     }
 
     $user = auth_user($db);
+
+
+    // Echo AI is proxied by PHP to an OpenAI-compatible provider; secrets never reach Android.
+    if ($method === 'POST' && $path === '/ai/reply') {
+        $prompt = required_string($data, 'prompt', 6000);
+        if (preg_match('//u', $prompt) !== 1) fail(422, 'Prompt contains invalid text encoding.');
+
+        $aiEndpoint = trim((string)($config['ai_endpoint'] ?? ''));
+        $aiApiKey = trim((string)($config['ai_api_key'] ?? ''));
+        $aiModel = trim((string)($config['ai_model'] ?? ''));
+        if ($aiEndpoint === '' || $aiApiKey === '' || $aiModel === '' ||
+            str_starts_with($aiApiKey, 'CHANGE_ME')) {
+            fail(503, 'Echo AI is not configured on the PHP server.');
+        }
+        $endpointParts = parse_url($aiEndpoint);
+        if (!is_array($endpointParts) || ($endpointParts['scheme'] ?? '') !== 'https' ||
+            empty($endpointParts['host']) || isset($endpointParts['user']) ||
+            isset($endpointParts['pass']) || isset($endpointParts['fragment'])) {
+            fail(503, 'AI provider endpoint must be a valid HTTPS URL.');
+        }
+        if (!function_exists('curl_init')) {
+            fail(503, 'PHP cURL extension is required for Echo AI.');
+        }
+
+        $payload = [
+            'model' => $aiModel,
+            'messages' => [
+                [
+                    'role' => 'system',
+                    'content' => 'You are Echo AI, a helpful assistant inside the Echo Chat app. Answer clearly and respectfully. Reply in the same language as the user unless they request another language.'
+                ],
+                ['role' => 'user', 'content' => $prompt],
+            ],
+            'temperature' => 0.7,
+            'max_tokens' => 800,
+        ];
+        try {
+            $encodedPayload = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        } catch (JsonException) {
+            fail(422, 'Could not encode the AI request.');
+        }
+        $handle = curl_init($aiEndpoint);
+        curl_setopt_array($handle, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => $encodedPayload,
+            CURLOPT_HTTPHEADER => [
+                'Content-Type: application/json',
+                'Accept: application/json',
+                'Authorization: Bearer ' . $aiApiKey,
+            ],
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CONNECTTIMEOUT => 8,
+            CURLOPT_TIMEOUT => 35,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_MAXREDIRS => 0,
+        ]);
+        $rawResponse = curl_exec($handle);
+        $curlErrno = curl_errno($handle);
+        $httpStatus = (int)curl_getinfo($handle, CURLINFO_RESPONSE_CODE);
+        curl_close($handle);
+        if ($rawResponse === false || $curlErrno !== 0) {
+            error_log('EchoChat AI provider connection failed; cURL errno ' . $curlErrno);
+            fail(502, 'AI provider could not be reached. Please try again.');
+        }
+        if ($httpStatus < 200 || $httpStatus >= 300) {
+            error_log('EchoChat AI provider returned HTTP ' . $httpStatus);
+            fail(502, 'AI provider returned an error. Please try again later.');
+        }
+        try {
+            $providerData = json_decode($rawResponse, true, 32, JSON_THROW_ON_ERROR);
+        } catch (JsonException) {
+            fail(502, 'AI provider returned an invalid response.');
+        }
+        $reply = $providerData['choices'][0]['message']['content'] ?? null;
+        if (!is_string($reply) || trim($reply) === '') {
+            fail(502, 'AI provider returned an empty response.');
+        }
+        ok(['reply' => mb_substr_safe(trim($reply), 12000)]);
+    }
 
     if ($method === 'GET' && $path === '/users') {
         $username = strtolower(trim((string)($_GET['username'] ?? '')));

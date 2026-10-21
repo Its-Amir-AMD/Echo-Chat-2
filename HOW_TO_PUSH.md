@@ -1,86 +1,55 @@
-# نحوه‌ی اعمال این اصلاحات روی ریپازیتوری خودتان و گرفتن APK
+# ساخت APK و انتشار تغییرات Echo-Chat-2
 
-من نمی‌توانم مستقیماً به حساب گیت‌هاب شما push کنم (به اعتبارنامه‌ی شما دسترسی
-ندارم) و نمی‌توانم در این محیط یک APK واقعی بسازم (دسترسی شبکه به سرورهای
-Android SDK/Gradle ندارم). راه‌حل: یک GitHub Actions workflow آماده کرده‌ام که
-وقتی خودتان push کنید، گیت‌هاب به‌صورت خودکار APK را می‌سازد.
+این راهنما برای همین مخزن است و از PHP/MySQL استفاده می‌کند؛ Firebase و فایل `google-services.json` لازم نیستند.
 
-## مرحله‌ی ۱: اعمال تغییرات (یکی از این سه روش)
-
-### روش ۱ (توصیه‌شده): git bundle
+## دریافت سورس
 
 ```bash
-git clone https://github.com/Its-Amir-AMD/Echochat_amir.git
-cd Echochat_amir
-git fetch /path/to/echochat-fixes.bundle main:fixes-branch
-git log fixes-branch -5          # مرور تغییرات (اختیاری)
-git checkout main
-git merge fixes-branch
-git push origin main
+git clone https://github.com/Its-Amir-AMD/Echo-Chat-2.git
+cd Echo-Chat-2
 ```
 
-### روش ۲: patch
+## بیلد محلی
+
+پیش‌نیازها: Android Studio، JDK 21 و SDK مناسب پروژه.
+
+در ویندوز:
+
+```powershell
+cd echochat-fixed-source
+.\gradlew.bat testDebugUnitTest lintDebug assembleDebug assembleRelease
+```
+
+در Linux/macOS:
 
 ```bash
-cd Echochat_amir
-git am /path/to/echochat-fixes.patch
-git push origin main
+cd echochat-fixed-source
+chmod +x gradlew
+./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease
 ```
 
-### روش ۳: جایگزینی دستی (بدون git)
+APK دیباگ در `app/build/outputs/apk/debug/app-debug.apk` ساخته می‌شود. نسخهٔ Release در `app/build/outputs/apk/release/` قرار می‌گیرد. اگر کلید خصوصی تنظیم نشده باشد، فایل Release با پسوند `unsigned` ساخته می‌شود و برای انتشار فروشگاهی مناسب نیست.
 
-فایل `echochat-fixed-source.zip` را از حالت فشرده خارج کنید، محتوایش را روی
-پوشه‌ی پروژه‌ی فعلی‌تان کپی/جایگزین کنید، سپس:
+## گرفتن APK از GitHub Actions
 
-```bash
-git add -A
-git commit -m "Fix responsive bugs, localization, CI, optional Firebase sync"
-git push origin main
-```
+1. تغییرات را در شاخهٔ مخزن push کنید یا Pull Request بسازید.
+2. تب **Actions** را باز کنید و اجرای **Android CI** مربوط به آخرین commit را انتخاب کنید.
+3. پس از سبز شدن تست‌ها، lint و build، artifact به نام `EchoChat-APK-builds` را دانلود کنید.
+4. برای نصب و تست روی گوشی از `app-debug.apk` استفاده کنید. APK دیباگ برای انتشار در فروشگاه نیست.
 
-## مرحله‌ی ۲: گرفتن APK از GitHub Actions (خودکار، بعد از push)
+## تنظیم امضای Release در GitHub Actions
 
-بعد از `git push origin main`:
+فقط اگر صاحب پروژه می‌خواهی Release امضاشده بسازی:
 
-1. به صفحه‌ی ریپازیتوری‌تان در گیت‌هاب بروید → تب **Actions**.
-2. یک workflow run به اسم «Android CI» می‌بینید که به‌طور خودکار شروع شده.
-   صبر کنید تا کامل شود (معمولاً ۵ تا ۱۰ دقیقه — این‌بار واقعاً روی سرورهای
-   گیت‌هاب build می‌شود، نه در محیط من، پس به تمام سرورهای لازم دسترسی دارد).
-3. وقتی سبز شد (✅)، روی همان run کلیک کنید. پایین صفحه بخش **Artifacts** را
-   می‌بینید:
-   - **`EchoChat-debug-apk`** — همیشه ساخته می‌شود، بدون نیاز به هیچ تنظیم
-     اضافه. این را دانلود، از حالت zip خارج و مستقیماً روی گوشی نصب کنید
-     (`adb install app-debug.apk`، یا فایل apk را روی گوشی بفرستید و نصب
-     کنید — باید اجازه‌ی "نصب از منابع ناشناس" را بدهید).
-   - **`EchoChat-release-apk`** — فقط اگر مراحل زیر را هم انجام داده باشید
-     ظاهر می‌شود.
+1. یک upload keystore را روی دستگاه امن خود بساز و نسخهٔ خصوصی آن را خارج از Git نگه دار.
+2. محتوای base64 فایل keystore را در Secret مخزن با نام `ENCODED_KEYSTORE` قرار بده.
+3. سه Secret دیگر تعریف کن: `STORE_PASSWORD`، `KEY_PASSWORD` و در صورت نیاز `KEY_ALIAS` (پیش‌فرض alias برابر `upload` است).
+4. یک commit جدید push کن یا workflow را دوباره اجرا کن.
 
-### برای گرفتن نسخه‌ی release امضاشده (اختیاری، برای انتشار در Google Play)
+اگر هیچ‌کدام از Secretهای امضا تنظیم نشده باشند، CI به‌صورت شفاف Release unsigned می‌سازد. کلید و رمزهای امضا را هرگز در سورس، ZIP عمومی یا لاگ‌های workflow قرار نده. برای به‌روزرسانی اپ منتشرشده، باید از همان کلید معتبر قبلی استفاده شود.
 
-```bash
-keytool -genkeypair -v -keystore my-upload-key.jks -alias upload \
-  -keyalg RSA -keysize 2048 -validity 10000
-base64 -w0 my-upload-key.jks > keystore.b64   # در مک: base64 my-upload-key.jks | tr -d '\n' > keystore.b64
-```
+## راه‌اندازی بک‌اند PHP
 
-سپس در گیت‌هاب: **Settings → Secrets and variables → Actions → New repository secret**
-و این سه مورد را اضافه کنید:
-- `ENCODED_KEYSTORE` ← محتوای `keystore.b64`
-- `STORE_PASSWORD` ← رمزی که برای keystore انتخاب کردید
-- `KEY_PASSWORD` ← رمزی که برای کلید انتخاب کردید
+طبق [server/README.md](server/README.md) API را روی HTTPS راه‌اندازی کن، فایل SQL در `server/database/schema.sql` را وارد کن و فایل پیکربندی خصوصی PHP را خارج از web root بساز. در ارتقاهای بعدی، `schema.sql` را دوباره import کن تا جدول `auth_attempts` اضافه شود؛ جداول موجود با `CREATE TABLE IF NOT EXISTS` حفظ می‌شوند.
 
-بعد یک push جدید بزنید (یا از تب Actions دکمه‌ی "Run workflow" را بزنید).
-این‌بار artifact دوم (`EchoChat-release-apk`) هم ساخته می‌شود — این نسخه
-امضاشده و قابل آپلود در Google Play است.
-
-**فایل `.jks` و رمزها را جایی امن نگه دارید و هرگز commit نکنید** — هر
-آپدیت بعدی اپ باید با همین کلید امضا شود.
-
-## نکات مهم قبل از انتشار نهایی
-
-- بک‌اند Firebase (`FirestoreSyncManager`, `FirebaseAuthManager`) کاملاً
-  اختیاری و بی‌اثر است تا `google-services.json` واقعی وصل نکنید. راهنمای
-  کامل در `app/FIREBASE_SETUP.md` داخل پروژه.
-- خلاصه‌ی کامل همه‌ی تغییرات کد در پیام‌های commit است (`git log`).
-- توصیه می‌کنم حتی بعد از دیدن ✅ در Actions، یک‌بار APK دیباگ را روی گوشی
-  واقعی خودتان نصب و چند دقیقه با آن کار کنید قبل از رفتن به سراغ release.
+قبل از انتشار عمومی، تست دو حساب/دو دستگاه و بازبینی امنیت سرور الزامی است. این پروژه هنوز MVP است و در وضعیت فعلی امکاناتی مانند آپلود رسانه، push notifications، read receipts و رمزنگاری سرتاسری را ارائه نمی‌کند.

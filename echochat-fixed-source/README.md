@@ -1,33 +1,31 @@
 # EchoChat Android
 
-Native Android application built with Kotlin, Jetpack Compose, Room, coroutines and a self-hosted PHP/MySQL REST API. Persian (RTL) and English (LTR) UI are supported.
+Native Android application built with Kotlin, Jetpack Compose, Room, coroutines and a self-hosted PHP/MySQL REST API. Persian RTL and English LTR are supported.
 
-## Implemented in this branch
+## Implemented
 
 - Email/password registration and login through the PHP API.
-- HTTPS server configuration from inside the app; the configured URL is stored privately on the device.
-- Public chat rooms, exact username lookup and member-protected private conversations.
-- Local Room caching and retry of queued outgoing messages.
-- Message history refresh through polling while the app is open.
-- Server-backed public room creation.
-- Server-synced text posts, likes, bookmarks, comments, and 24-hour text stories.
-- A redesigned Explore experience with search, category filters, stories and a responsive text feed.
-- Persian/English UI, theme preferences, and a local profile/settings screen.
+- HTTPS server configuration stored in app-private preferences.
+- Public chat rooms, username lookup, private two-person conversations and message history.
+- Local Room cache, retry of queued outgoing messages and polling-based sync while the app is open.
+- Server-backed public-room creation.
+- Server-synced text posts, likes, bookmarks, comments and 24-hour text stories.
+- Explore feed, profile/settings, language and theme controls.
+- No Firebase SDK, Firebase services, Google Services Gradle plugin, or `google-services.json` requirement.
+- The Echo AI chat can call the optional `/ai/reply` endpoint on the PHP backend; provider credentials remain server-side.
 
 ## Server setup
 
-Follow the steps in ../server/README.md. The API URL in the app must point to the folder containing index.php, for example https://yourdomain.com/echochat-api. The backend health route at URL + /health should return ok: true and database: connected.
+Follow [../server/README.md](../server/README.md). The API URL must point to the folder containing `index.php`, e.g. `https://yourdomain.com/echochat-api`. The `/health` route should return `ok: true` and `database: connected`.
 
-The SQL schema seeds three public rooms: general, technology and help. You can customize their names and descriptions in the rooms table after installation.
+Re-import `../server/database/schema.sql` on an existing database when upgrading so the auth rate-limit table is created. Existing tables are preserved by `CREATE TABLE IF NOT EXISTS`.
 
-## Build on Windows
+## Build
 
-Use Android Studio and JDK 21. From this folder, run Gradle tasks testDebugUnitTest, lintDebug, and assembleDebug. The debug APK is written to app/build/outputs/apk/debug/app-debug.apk.
+Use Android Studio with JDK 21. Run `testDebugUnitTest`, `lintDebug`, `assembleDebug` and `assembleRelease` from this folder. CI produces a debug APK for installation/testing and an unsigned release APK unless a protected upload keystore is configured.
 
-GitHub Actions runs unit tests, lint and a debug build when branches or pull requests are updated.
+Never commit upload keystores, passwords, tokens or database configuration. A release signed with a debug key is not suitable for store distribution.
 
-## Scope and release readiness
+## Release status
 
-This branch is a working MVP, not a claim of production readiness. Password reset/email verification, login throttling, server moderation and abuse controls, account deletion/privacy flows, data retention, push notifications, WebSockets, end-to-end encryption, media uploads, delivery/read receipts, presence and load testing still need implementation. Text posts, likes, bookmarks, comments and text stories are synchronized by the PHP API. Media uploads, server-backed profile editing and Echo AI synchronization are not included yet. Before public release, test registration, logout, privacy isolation, public rooms and private conversations with at least two separate accounts/devices, review the PHP host setup, and add rate limiting and automated API tests.
-
-Firebase remains an optional dependency for the existing Echo AI integration only; normal account login and messaging use PHP/MySQL. Do not put database passwords, session tokens, signing keys or private hosting config into this repository.
+This is still an MVP, not a production-ready release. Current social posts and stories are text-only. Media upload, server-backed profile editing, password reset/email verification, login and registration abuse protection beyond the implemented server-side throttles, moderation/reporting, account export/deletion, push notifications, real-time WebSockets, read/delivery receipts, presence, end-to-end encryption and Echo AI via a separately configured PHP provider are not complete. Validate privacy isolation on two accounts/devices and perform server security/load testing before public distribution.

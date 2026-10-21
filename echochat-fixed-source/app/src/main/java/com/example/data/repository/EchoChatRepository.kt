@@ -1,6 +1,5 @@
 package com.example.data.repository
 
-import com.example.ai.EchoAiService
 import com.example.data.local.EchoChatDao
 import com.example.data.model.ChannelEntity
 import com.example.data.model.CommentEntity
@@ -18,7 +17,10 @@ import java.util.UUID
 
 class EchoChatRepository(
     private val dao: EchoChatDao,
-    private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO)
+    private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO),
+    private val aiReply: suspend (String) -> String = {
+        throw IllegalStateException("Echo AI is not configured on the PHP server.")
+    }
 ) {
     val allChannels: Flow<List<ChannelEntity>> = dao.getAllChannels()
     val userProfile: Flow<UserProfileEntity?> = dao.getUserProfile()
@@ -83,7 +85,9 @@ class EchoChatRepository(
             val assistantName = "Echo AI"
             _typingStatus.value = _typingStatus.value + (channelId to assistantName)
             try {
-                val replyText = EchoAiService().generateReply(userText)
+                val replyText = aiReply(userText).trim().also { reply ->
+                    require(reply.isNotEmpty()) { "PHP AI provider returned an empty response." }
+                }
                 val now = System.currentTimeMillis()
                 val reply = MessageEntity(
                     id = UUID.randomUUID().toString(),
@@ -103,7 +107,7 @@ class EchoChatRepository(
             } catch (_: Exception) {
                 // Do not represent a canned response as AI output.
                 val now = System.currentTimeMillis()
-                val explanation = "پاسخ هوش مصنوعی در دسترس نیست. تنظیمات Firebase AI و App Check را بررسی کنید. / AI unavailable: check Firebase AI and App Check configuration."
+                val explanation = "هوش مصنوعی اکو روی سرور PHP هنوز تنظیم نشده یا موقتاً در دسترس نیست. مدیر سرور باید ارائه‌دهندهٔ هوش مصنوعی را در config.php پیکربندی کند. / Echo AI is unavailable: configure the AI provider in the private PHP server config."
                 dao.insertMessage(
                     MessageEntity(
                         id = UUID.randomUUID().toString(),
