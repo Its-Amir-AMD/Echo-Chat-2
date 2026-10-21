@@ -660,10 +660,19 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun createStory(title: String) {
+    fun createStory(title: String, onComplete: (String?) -> Unit = {}) {
+        if (!_accountState.value.isSignedIn) {
+            onComplete("برای انتشار استوری ابتدا وارد حساب کاربری شوید.")
+            return
+        }
         viewModelScope.launch {
-            runCatching { api.createStory(title) }
-                .onSuccess { dao.insertStory(it.toEntity()) }
+            try {
+                val story = api.createStory(title)
+                dao.insertStory(story.toEntity())
+                onComplete(null)
+            } catch (error: Exception) {
+                onComplete(error.message ?: "انتشار استوری ناموفق بود. دوباره تلاش کنید.")
+            }
         }
     }
 

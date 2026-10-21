@@ -335,7 +335,7 @@ fun MainScreen(
                                 onBookmarkPost = { id, bookmarked -> viewModel.toggleBookmarkPost(id, bookmarked) },
                                 onStoryClick = { viewModel.markStoryViewed(it) },
                                 onCreatePostClick = { showCreatePostDialog = true },
-                                onCreateStory = { viewModel.createStory(it) },
+                                onCreateStory = { title, onComplete -> viewModel.createStory(title, onComplete) },
                                 onCommentsClick = { selectedPostForComments = it; viewModel.refreshComments(it.id) }
                             )
                         }
@@ -439,7 +439,7 @@ fun MainScreen(
                                 onBookmarkPost = { id, bookmarked -> viewModel.toggleBookmarkPost(id, bookmarked) },
                                 onStoryClick = { viewModel.markStoryViewed(it) },
                                 onCreatePostClick = { showCreatePostDialog = true },
-                                onCreateStory = { viewModel.createStory(it) },
+                                onCreateStory = { title, onComplete -> viewModel.createStory(title, onComplete) },
                                 onCommentsClick = { selectedPostForComments = it; viewModel.refreshComments(it.id) }
                             )
                         }
