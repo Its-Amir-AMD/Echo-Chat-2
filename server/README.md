@@ -30,6 +30,17 @@ The base URL must point to the folder containing index.php. Do not add /index.ph
 - POST /auth/logout — revoke the current token.
 - GET /users?username=handle — exact username lookup.
 - GET /rooms — list public rooms.
+- POST /rooms — create a public room for the signed-in account.
+- GET /posts — list the latest social posts with per-user likes/bookmarks.
+- POST /posts — publish a text post.
+- POST /posts/like — toggle the signed-in user's like on a post.
+- POST /posts/bookmark — toggle a saved-post bookmark.
+- POST /posts/delete — delete a post owned by the signed-in user.
+- GET /comments?post_id=... — list comments for a post.
+- POST /comments — publish a comment.
+- GET /stories — list unexpired stories and per-user view state.
+- POST /stories — publish a text story (expires after 24 hours).
+- POST /stories/view — mark an active story as viewed.
 - GET /conversations — list the signed-in user's private conversations.
 - POST /conversations — create or return a private conversation for a username.
 - GET /messages?room_id=general — recent messages for a public room.
@@ -44,4 +55,4 @@ Passwords are stored with PHP password_hash, SQL uses prepared statements, and b
 
 Serve this API only over HTTPS. Keep configuration credentials outside the public web root, use a least-privilege database user, keep backups, and don't publish database credentials or access tokens.
 
-This is an MVP, not yet a public-release-ready service. Before a broad release, add and test login throttling, email verification and password-reset delivery, abuse reporting/moderation, privacy and account-deletion workflows, data retention, monitoring, and independent security testing. Messages are refreshed by polling about every five seconds while the app is open; push notifications, WebSockets, end-to-end encryption, media uploads, delivery/read receipts, and presence are not included. Explore posts, stories, comments, profile editing, and Echo AI are not synced by this API yet.
+This is an MVP, not yet a public-release-ready service. Before a broad release, add and test login throttling, email verification and password-reset delivery, abuse reporting/moderation, privacy and account-deletion workflows, data retention, monitoring, and independent security testing. Messages and social-feed data are refreshed by polling while the app is open; push notifications, WebSockets, end-to-end encryption, media uploads, delivery/read receipts, online presence, server-backed profile editing, and Echo AI synchronization are not included.

@@ -29,6 +29,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import com.example.data.local.EchoChatDao
+import com.example.data.remote.ApiComment
+import com.example.data.remote.ApiPost
+import com.example.data.remote.ApiStory
 import com.example.data.remote.ApiUser
 import com.example.data.remote.PhpApiClient
 
@@ -310,6 +313,21 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 dao.updateChannelLastMessage(channelId, latest.content, latest.timestamp)
             }
         }
+
+        // Keep the social timeline authoritative on the server as well as on this device.
+        val remotePosts = api.getPosts()
+        if (remotePosts.isEmpty()) {
+            dao.deleteAllPosts()
+        } else {
+            dao.deletePostsNotInIds(remotePosts.map { it.id })
+            dao.upsertPosts(remotePosts.map { it.toEntity() })
+        }
+
+        val remoteStories = api.getStories()
+        dao.deleteAllStories()
+        if (remoteStories.isNotEmpty()) {
+            dao.insertStories(remoteStories.map { it.toEntity() })
+        }
     }
  
     val channels: StateFlow<List<ChannelEntity>> = repository.allChannels
@@ -513,9 +531,47 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun createChannel(name: String, desc: String, icon: String = "forum") {
+    fun createChannel(
+        name: String,
+        desc: String,
+        icon: String = "forum",
+        onComplete: (String?) -> Unit = {}
+    ) {
+        val account = _accountState.value
+        if (!account.isSignedIn) {
+            onComplete("برای ساخت کانال ابتدا وارد حساب کاربری شوید.")
+            return
+        }
+
+        val cleanName = name.trim()
+        if (cleanName.length < 2) {
+            onComplete("نام کانال باید حداقل دو نویسه داشته باشد.")
+            return
+        }
+
         viewModelScope.launch {
-            repository.createChannel(name, desc, icon)
+            try {
+                // Create remotely first. Never show a channel as created before the API confirms it.
+                val room = api.createRoom(cleanName, desc.trim(), icon)
+                val now = System.currentTimeMillis()
+                dao.insertChannel(
+                    ChannelEntity(
+                        id = room.id,
+                        name = room.name,
+                        description = room.description,
+                        iconName = room.iconName,
+                        isDirectMessage = false,
+                        lastMessage = room.lastMessage,
+                        lastMessageTime = room.lastMessageTime,
+                        createdAt = now
+                    )
+                )
+                _selectedChannelId.value = room.id
+                _currentMainTab.value = 0
+                onComplete(null)
+            } catch (error: Exception) {
+                onComplete(error.message ?: "ساخت کانال ناموفق بود. دوباره تلاش کنید.")
+            }
         }
     }
 
@@ -557,45 +613,127 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    // --- Social Actions ---
-    fun createPost(content: String, tags: String, category: String) {
+    // --- Social Actions: authenticated API first, then update Room for Compose observers. ---
+    fun createPost(
+        content: String,
+        tags: String,
+        category: String,
+        onComplete: (String?) -> Unit = {}
+    ) {
+        if (!_accountState.value.isSignedIn) {
+            onComplete("برای انتشار پست ابتدا وارد حساب کاربری شوید.")
+            return
+        }
         viewModelScope.launch {
-            repository.createPost(content, tags, category)
+            try {
+                val post = api.createPost(content, tags, category)
+                dao.insertPost(post.toEntity())
+                onComplete(null)
+            } catch (error: Exception) {
+                onComplete(error.message ?: "انتشار پست ناموفق بود. دوباره تلاش کنید.")
+            }
         }
     }
 
     fun toggleLikePost(postId: String, currentLiked: Boolean, currentCount: Int) {
         viewModelScope.launch {
-            repository.toggleLikePost(postId, currentLiked, currentCount)
+            runCatching { api.togglePostLike(postId) }
+                .onSuccess { dao.insertPost(it.toEntity()) }
         }
     }
 
     fun toggleBookmarkPost(postId: String, currentBookmarked: Boolean) {
         viewModelScope.launch {
-            repository.toggleBookmarkPost(postId, currentBookmarked)
+            runCatching { api.togglePostBookmark(postId) }
+                .onSuccess { dao.insertPost(it.toEntity()) }
         }
     }
 
     fun deletePost(postId: String) {
         viewModelScope.launch {
-            repository.deletePost(postId)
+            runCatching { api.deletePost(postId) }
+                .onSuccess { dao.deletePost(postId) }
         }
     }
 
     fun markStoryViewed(storyId: String) {
-        viewModelScope.launch { repository.markStoryViewed(storyId) }
+        viewModelScope.launch {
+            dao.markStoryViewed(storyId)
+            runCatching { api.markStoryViewed(storyId) }
+        }
     }
 
-    fun createStory(title: String) {
-        viewModelScope.launch { repository.createStory(title) }
+    fun createStory(title: String, onComplete: (String?) -> Unit = {}) {
+        if (!_accountState.value.isSignedIn) {
+            onComplete("برای انتشار استوری ابتدا وارد حساب کاربری شوید.")
+            return
+        }
+        viewModelScope.launch {
+            try {
+                val story = api.createStory(title)
+                dao.insertStory(story.toEntity())
+                onComplete(null)
+            } catch (error: Exception) {
+                onComplete(error.message ?: "انتشار استوری ناموفق بود. دوباره تلاش کنید.")
+            }
+        }
     }
 
     fun commentsForPost(postId: String): Flow<List<CommentEntity>> =
         repository.getCommentsForPost(postId)
 
-    fun createComment(postId: String, content: String) {
-        viewModelScope.launch { repository.createComment(postId, content) }
+    fun refreshComments(postId: String) {
+        viewModelScope.launch {
+            runCatching { api.getComments(postId) }
+                .onSuccess { comments ->
+                    dao.deleteCommentsForPost(postId)
+                    if (comments.isNotEmpty()) {
+                        dao.insertComments(comments.map { it.toEntity() })
+                    }
+                }
+        }
     }
+
+    fun createComment(postId: String, content: String) {
+        viewModelScope.launch {
+            runCatching { api.createComment(postId, content) }
+                .onSuccess { dao.insertCommentAndIncrementCount(it.toEntity()) }
+        }
+    }
+
+    private fun ApiPost.toEntity() = PostEntity(
+        id = id,
+        authorId = authorId,
+        authorName = authorName,
+        authorRole = authorRole,
+        authorAvatarColor = authorAvatarColor,
+        content = content,
+        tags = tags,
+        category = category,
+        likesCount = likesCount,
+        commentsCount = commentsCount,
+        isLiked = isLiked,
+        isBookmarked = isBookmarked,
+        timestamp = timestamp
+    )
+
+    private fun ApiStory.toEntity() = StoryEntity(
+        id = id,
+        authorName = authorName,
+        authorAvatarColor = authorAvatarColor,
+        storyTitle = storyTitle,
+        isViewed = isViewed,
+        timestamp = timestamp
+    )
+
+    private fun ApiComment.toEntity() = CommentEntity(
+        id = id,
+        postId = postId,
+        authorId = authorId,
+        authorName = authorName,
+        content = content,
+        timestamp = timestamp
+    )
 
     fun toggleLanguage() {
         setLanguage(if (_currentLanguage.value == AppLanguage.PERSIAN) AppLanguage.ENGLISH else AppLanguage.PERSIAN)

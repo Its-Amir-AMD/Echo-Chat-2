@@ -86,6 +86,12 @@ interface EchoChatDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertPosts(posts: List<PostEntity>)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertPosts(posts: List<PostEntity>)
+
+    @Query("DELETE FROM social_posts WHERE id NOT IN (:postIds)")
+    suspend fun deletePostsNotInIds(postIds: List<String>)
+
     @Query("UPDATE social_posts SET isLiked = CASE WHEN isLiked = 0 THEN 1 ELSE 0 END, likesCount = CASE WHEN isLiked = 0 THEN likesCount + 1 ELSE MAX(likesCount - 1, 0) END WHERE id = :postId")
     suspend fun togglePostLike(postId: String)
 
@@ -100,6 +106,12 @@ interface EchoChatDao {
 
     @Query("SELECT * FROM post_comments WHERE postId = :postId ORDER BY timestamp ASC")
     fun getCommentsForPost(postId: String): Flow<List<CommentEntity>>
+
+    @Query("DELETE FROM post_comments WHERE postId = :postId")
+    suspend fun deleteCommentsForPost(postId: String)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertComments(comments: List<CommentEntity>)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertComment(comment: CommentEntity)

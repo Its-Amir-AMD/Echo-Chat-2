@@ -28,6 +28,41 @@ data class ApiRoom(
     val lastMessageTime: Long
 )
 
+data class ApiPost(
+    val id: String,
+    val authorId: String,
+    val authorName: String,
+    val authorRole: String,
+    val authorAvatarColor: Long,
+    val content: String,
+    val tags: String,
+    val category: String,
+    val likesCount: Int,
+    val commentsCount: Int,
+    val isLiked: Boolean,
+    val isBookmarked: Boolean,
+    val timestamp: Long
+)
+
+data class ApiStory(
+    val id: String,
+    val authorId: String,
+    val authorName: String,
+    val authorAvatarColor: Long,
+    val storyTitle: String,
+    val isViewed: Boolean,
+    val timestamp: Long
+)
+
+data class ApiComment(
+    val id: String,
+    val postId: String,
+    val authorId: String,
+    val authorName: String,
+    val content: String,
+    val timestamp: Long
+)
+
 data class ApiConversation(
     val id: String,
     val peerId: String,
@@ -183,16 +218,70 @@ class PhpApiClient(context: Context) {
         return buildList {
             for (i in 0 until array.length()) {
                 val item = array.getJSONObject(i)
-                add(ApiRoom(
-                    id = item.getString("id"),
-                    name = item.optString("name"),
-                    description = item.optString("description"),
-                    iconName = item.optString("icon_name", "forum"),
-                    lastMessage = item.optString("last_message"),
-                    lastMessageTime = item.optLong("last_message_time")
-                ))
+                add(parseRoom(item))
             }
         }
+    }
+
+    suspend fun createRoom(name: String, description: String, iconName: String = "forum"): ApiRoom {
+        val data = request("POST", "/rooms", JSONObject()
+            .put("name", name.trim())
+            .put("description", description.trim())
+            .put("icon_name", iconName))
+        return parseRoom(data.getJSONObject("room"))
+    }
+
+    suspend fun getPosts(): List<ApiPost> {
+        val array = request("GET", "/posts").getJSONArray("posts")
+        return buildList { for (i in 0 until array.length()) add(parsePost(array.getJSONObject(i))) }
+    }
+
+    suspend fun createPost(content: String, tags: String, category: String): ApiPost {
+        val data = request("POST", "/posts", JSONObject()
+            .put("content", content.trim())
+            .put("tags", tags.trim())
+            .put("category", category))
+        return parsePost(data.getJSONObject("post"))
+    }
+
+    suspend fun togglePostLike(postId: String): ApiPost {
+        val data = request("POST", "/posts/like", JSONObject().put("post_id", postId))
+        return parsePost(data.getJSONObject("post"))
+    }
+
+    suspend fun togglePostBookmark(postId: String): ApiPost {
+        val data = request("POST", "/posts/bookmark", JSONObject().put("post_id", postId))
+        return parsePost(data.getJSONObject("post"))
+    }
+
+    suspend fun deletePost(postId: String) {
+        request("POST", "/posts/delete", JSONObject().put("post_id", postId))
+    }
+
+    suspend fun getComments(postId: String): List<ApiComment> {
+        val array = request("GET", "/comments?post_id=" + encode(postId)).getJSONArray("comments")
+        return buildList { for (i in 0 until array.length()) add(parseComment(array.getJSONObject(i))) }
+    }
+
+    suspend fun createComment(postId: String, content: String): ApiComment {
+        val data = request("POST", "/comments", JSONObject()
+            .put("post_id", postId)
+            .put("content", content.trim()))
+        return parseComment(data.getJSONObject("comment"))
+    }
+
+    suspend fun getStories(): List<ApiStory> {
+        val array = request("GET", "/stories").getJSONArray("stories")
+        return buildList { for (i in 0 until array.length()) add(parseStory(array.getJSONObject(i))) }
+    }
+
+    suspend fun createStory(title: String): ApiStory {
+        val data = request("POST", "/stories", JSONObject().put("title", title.trim()))
+        return parseStory(data.getJSONObject("story"))
+    }
+
+    suspend fun markStoryViewed(storyId: String) {
+        request("POST", "/stories/view", JSONObject().put("story_id", storyId))
     }
 
     suspend fun getConversations(): List<ApiConversation> {
@@ -271,6 +360,50 @@ class PhpApiClient(context: Context) {
         displayName = item.optString("display_name", item.optString("username")),
         email = item.optString("email"),
         createdAt = item.optLong("created_at_ms")
+    )
+
+    private fun parseRoom(item: JSONObject) = ApiRoom(
+        id = item.getString("id"),
+        name = item.optString("name"),
+        description = item.optString("description"),
+        iconName = item.optString("icon_name", "forum"),
+        lastMessage = item.optString("last_message"),
+        lastMessageTime = item.optLong("last_message_time")
+    )
+
+    private fun parsePost(item: JSONObject) = ApiPost(
+        id = item.getString("id"),
+        authorId = item.optString("author_id"),
+        authorName = item.optString("author_name", item.optString("author_username", "Echo")),
+        authorRole = item.optString("author_role", "Echo member"),
+        authorAvatarColor = item.optLong("author_avatar_color", 4281639158L),
+        content = item.optString("content"),
+        tags = item.optString("tags"),
+        category = item.optString("category", "tech"),
+        likesCount = item.optInt("likes_count"),
+        commentsCount = item.optInt("comments_count"),
+        isLiked = item.optBoolean("is_liked"),
+        isBookmarked = item.optBoolean("is_bookmarked"),
+        timestamp = item.optLong("timestamp")
+    )
+
+    private fun parseStory(item: JSONObject) = ApiStory(
+        id = item.getString("id"),
+        authorId = item.optString("author_id"),
+        authorName = item.optString("author_name", "Echo"),
+        authorAvatarColor = item.optLong("author_avatar_color", 4281639158L),
+        storyTitle = item.optString("story_title"),
+        isViewed = item.optBoolean("is_viewed"),
+        timestamp = item.optLong("timestamp")
+    )
+
+    private fun parseComment(item: JSONObject) = ApiComment(
+        id = item.getString("id"),
+        postId = item.getString("post_id"),
+        authorId = item.optString("author_id"),
+        authorName = item.optString("author_name", "Echo"),
+        content = item.optString("content"),
+        timestamp = item.optLong("timestamp")
     )
 
     private fun parseConversation(item: JSONObject) = ApiConversation(

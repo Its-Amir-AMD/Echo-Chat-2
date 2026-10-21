@@ -335,8 +335,8 @@ fun MainScreen(
                                 onBookmarkPost = { id, bookmarked -> viewModel.toggleBookmarkPost(id, bookmarked) },
                                 onStoryClick = { viewModel.markStoryViewed(it) },
                                 onCreatePostClick = { showCreatePostDialog = true },
-                                onCreateStory = { viewModel.createStory(it) },
-                                onCommentsClick = { selectedPostForComments = it }
+                                onCreateStory = { title, onComplete -> viewModel.createStory(title, onComplete) },
+                                onCommentsClick = { selectedPostForComments = it; viewModel.refreshComments(it.id) }
                             )
                         }
                         2 -> {
@@ -345,7 +345,7 @@ fun MainScreen(
                                 language = currentLanguage,
                                 onLikePost = { id, liked, count -> viewModel.toggleLikePost(id, liked, count) },
                                 onBookmarkPost = { id, bookmarked -> viewModel.toggleBookmarkPost(id, bookmarked) },
-                                onCommentsClick = { selectedPostForComments = it }
+                                onCommentsClick = { selectedPostForComments = it; viewModel.refreshComments(it.id) }
                             )
                         }
                         3 -> {
@@ -360,7 +360,7 @@ fun MainScreen(
                                 onClearChat = { viewModel.clearChat() },
                                 onLikePost = { id, liked, count -> viewModel.toggleLikePost(id, liked, count) },
                                 onBookmarkPost = { id, bookmarked -> viewModel.toggleBookmarkPost(id, bookmarked) },
-                                onCommentsClick = { selectedPostForComments = it }
+                                onCommentsClick = { selectedPostForComments = it; viewModel.refreshComments(it.id) }
                             )
                         }
                     }
@@ -439,8 +439,8 @@ fun MainScreen(
                                 onBookmarkPost = { id, bookmarked -> viewModel.toggleBookmarkPost(id, bookmarked) },
                                 onStoryClick = { viewModel.markStoryViewed(it) },
                                 onCreatePostClick = { showCreatePostDialog = true },
-                                onCreateStory = { viewModel.createStory(it) },
-                                onCommentsClick = { selectedPostForComments = it }
+                                onCreateStory = { title, onComplete -> viewModel.createStory(title, onComplete) },
+                                onCommentsClick = { selectedPostForComments = it; viewModel.refreshComments(it.id) }
                             )
                         }
                         2 -> {
@@ -449,7 +449,7 @@ fun MainScreen(
                                 language = currentLanguage,
                                 onLikePost = { id, liked, count -> viewModel.toggleLikePost(id, liked, count) },
                                 onBookmarkPost = { id, bookmarked -> viewModel.toggleBookmarkPost(id, bookmarked) },
-                                onCommentsClick = { selectedPostForComments = it }
+                                onCommentsClick = { selectedPostForComments = it; viewModel.refreshComments(it.id) }
                             )
                         }
                         3 -> {
@@ -464,7 +464,7 @@ fun MainScreen(
                                 onClearChat = { viewModel.clearChat() },
                                 onLikePost = { id, liked, count -> viewModel.toggleLikePost(id, liked, count) },
                                 onBookmarkPost = { id, bookmarked -> viewModel.toggleBookmarkPost(id, bookmarked) },
-                                onCommentsClick = { selectedPostForComments = it }
+                                onCommentsClick = { selectedPostForComments = it; viewModel.refreshComments(it.id) }
                             )
                         }
                     }
@@ -478,9 +478,8 @@ fun MainScreen(
         CreateChannelDialog(
             language = currentLanguage,
             onDismiss = { showCreateChannelDialog = false },
-            onCreate = { name, desc, icon ->
-                viewModel.createChannel(name, desc, icon)
-                showCreateChannelDialog = false
+            onCreate = { name, desc, icon, onComplete ->
+                viewModel.createChannel(name, desc, icon, onComplete)
             }
         )
     }
@@ -502,9 +501,8 @@ fun MainScreen(
         CreatePostDialog(
             language = currentLanguage,
             onDismiss = { showCreatePostDialog = false },
-            onPublish = { content, tags, category ->
-                viewModel.createPost(content, tags, category)
-                showCreatePostDialog = false
+            onPublish = { content, tags, category, onComplete ->
+                viewModel.createPost(content, tags, category, onComplete)
             }
         )
     }

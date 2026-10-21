@@ -133,6 +133,52 @@ function conversation_public(PDO $db, string $conversationId, string $userId): a
     ];
 }
 
+function social_post_select_sql(): string {
+    return 'SELECT p.id, p.author_id, p.content, p.tags, p.category, p.created_at_ms,
+                u.username, u.display_name,
+                (SELECT COUNT(*) FROM post_likes l WHERE l.post_id = p.id) AS likes_count,
+                (SELECT COUNT(*) FROM post_comments c WHERE c.post_id = p.id) AS comments_count,
+                EXISTS(SELECT 1 FROM post_likes l WHERE l.post_id = p.id AND l.user_id = ?) AS is_liked,
+                EXISTS(SELECT 1 FROM post_bookmarks b WHERE b.post_id = p.id AND b.user_id = ?) AS is_bookmarked
+            FROM social_posts p INNER JOIN users u ON u.id = p.author_id';
+}
+function social_post_payload(array $row): array {
+    return [
+        'id' => (string)$row['id'],
+        'author_id' => (string)$row['author_id'],
+        'author_name' => (string)$row['display_name'],
+        'author_username' => (string)$row['username'],
+        'author_role' => 'Echo member',
+        'author_avatar_color' => 4281639158,
+        'content' => (string)$row['content'],
+        'tags' => (string)$row['tags'],
+        'category' => (string)$row['category'],
+        'likes_count' => (int)$row['likes_count'],
+        'comments_count' => (int)$row['comments_count'],
+        'shares_count' => 0,
+        'is_liked' => (bool)$row['is_liked'],
+        'is_bookmarked' => (bool)$row['is_bookmarked'],
+        'timestamp' => (int)$row['created_at_ms'],
+    ];
+}
+function fetch_social_post(PDO $db, string $postId, string $viewerId): array {
+    $stmt = $db->prepare(social_post_select_sql() . ' WHERE p.id = ? LIMIT 1');
+    $stmt->execute([$viewerId, $viewerId, $postId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$row) fail(404, 'Post was not found.');
+    return social_post_payload($row);
+}
+function social_comment_payload(array $row): array {
+    return [
+        'id' => (string)$row['id'],
+        'post_id' => (string)$row['post_id'],
+        'author_id' => (string)$row['author_id'],
+        'author_name' => (string)$row['display_name'],
+        'content' => (string)$row['content'],
+        'timestamp' => (int)$row['created_at_ms'],
+    ];
+}
+
 try {
     // Works both when public/ is the document root and when its contents are
     // deployed into a subfolder such as public_html/echochat-api/.
@@ -270,6 +316,207 @@ try {
             ];
         }
         ok(['rooms' => $rooms]);
+    }
+
+    // Create a public room on the server; local-only channel creation is not enough.
+    if ($method === 'POST' && $path === '/rooms') {
+        $name = required_string($data, 'name', 100);
+        if (mb_length($name) < 2) fail(422, 'Channel name must contain at least 2 characters.');
+
+        $description = $data['description'] ?? '';
+        if (!is_string($description)) fail(422, 'Invalid field: description.');
+        $description = trim($description);
+        if (mb_length($description) > 255) fail(422, 'Channel description must be at most 255 characters.');
+
+        $iconName = $data['icon_name'] ?? 'forum';
+        $allowedIcons = ['forum', 'code', 'palette', 'smart_toy'];
+        if (!is_string($iconName) || !in_array($iconName, $allowedIcons, true)) {
+            fail(422, 'Choose a supported channel icon.');
+        }
+
+        $id = 'room_' . bin2hex(random_bytes(12));
+        $stmt = $db->prepare(
+            'INSERT INTO rooms (id, name, description, icon_name, is_active) VALUES (?, ?, ?, ?, 1)'
+        );
+        $stmt->execute([$id, $name, $description, $iconName]);
+
+        ok(['room' => [
+            'id' => $id,
+            'name' => $name,
+            'description' => $description,
+            'icon_name' => $iconName,
+            'is_direct_message' => false,
+            'last_message' => '',
+            'last_message_time' => 0,
+            'created_at' => (int) floor(microtime(true) * 1000),
+        ]], 201);
+    }
+
+    if ($method === 'GET' && $path === '/posts') {
+        $stmt = $db->prepare(
+            social_post_select_sql() . ' ORDER BY p.created_at_ms DESC, p.id DESC LIMIT 100'
+        );
+        $stmt->execute([$user['id'], $user['id']]);
+        ok(['posts' => array_map('social_post_payload', $stmt->fetchAll(PDO::FETCH_ASSOC))]);
+    }
+
+    if ($method === 'POST' && $path === '/posts') {
+        $content = required_string($data, 'content', 10000);
+        $tags = $data['tags'] ?? '';
+        if (!is_string($tags)) fail(422, 'Invalid field: tags.');
+        $tags = trim($tags);
+        if (mb_length($tags) > 500) fail(422, 'Tags must be at most 500 characters.');
+        $category = $data['category'] ?? 'tech';
+        if (!is_string($category) || !in_array($category, ['tech', 'design', 'ai'], true)) {
+            fail(422, 'Choose a supported post category.');
+        }
+        $id = 'post_' . bin2hex(random_bytes(12));
+        $now = (int)floor(microtime(true) * 1000);
+        $stmt = $db->prepare(
+            'INSERT INTO social_posts (id, author_id, content, tags, category, created_at_ms) VALUES (?, ?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([$id, $user['id'], $content, $tags, $category, $now]);
+        ok(['post' => fetch_social_post($db, $id, (string)$user['id'])], 201);
+    }
+
+    if ($method === 'POST' && $path === '/posts/like') {
+        $postId = required_string($data, 'post_id', 64);
+        $db->beginTransaction();
+        try {
+            $lock = $db->prepare('SELECT id FROM social_posts WHERE id = ? FOR UPDATE');
+            $lock->execute([$postId]);
+            if (!$lock->fetchColumn()) fail(404, 'Post was not found.');
+            $check = $db->prepare('SELECT 1 FROM post_likes WHERE post_id = ? AND user_id = ? LIMIT 1');
+            $check->execute([$postId, $user['id']]);
+            if ($check->fetchColumn()) {
+                $db->prepare('DELETE FROM post_likes WHERE post_id = ? AND user_id = ?')
+                    ->execute([$postId, $user['id']]);
+            } else {
+                $db->prepare('INSERT INTO post_likes (post_id, user_id, created_at_ms) VALUES (?, ?, ?)')
+                    ->execute([$postId, $user['id'], (int)floor(microtime(true) * 1000)]);
+            }
+            $db->commit();
+        } catch (Throwable $e) {
+            if ($db->inTransaction()) $db->rollBack();
+            throw $e;
+        }
+        ok(['post' => fetch_social_post($db, $postId, (string)$user['id'])]);
+    }
+
+    if ($method === 'POST' && $path === '/posts/bookmark') {
+        $postId = required_string($data, 'post_id', 64);
+        $exists = $db->prepare('SELECT 1 FROM social_posts WHERE id = ? LIMIT 1');
+        $exists->execute([$postId]);
+        if (!$exists->fetchColumn()) fail(404, 'Post was not found.');
+        $check = $db->prepare('SELECT 1 FROM post_bookmarks WHERE post_id = ? AND user_id = ? LIMIT 1');
+        $check->execute([$postId, $user['id']]);
+        if ($check->fetchColumn()) {
+            $db->prepare('DELETE FROM post_bookmarks WHERE post_id = ? AND user_id = ?')
+                ->execute([$postId, $user['id']]);
+        } else {
+            $db->prepare('INSERT INTO post_bookmarks (post_id, user_id, created_at_ms) VALUES (?, ?, ?)')
+                ->execute([$postId, $user['id'], (int)floor(microtime(true) * 1000)]);
+        }
+        ok(['post' => fetch_social_post($db, $postId, (string)$user['id'])]);
+    }
+
+    if ($method === 'POST' && $path === '/posts/delete') {
+        $postId = required_string($data, 'post_id', 64);
+        $stmt = $db->prepare('SELECT author_id FROM social_posts WHERE id = ? LIMIT 1');
+        $stmt->execute([$postId]);
+        $authorId = $stmt->fetchColumn();
+        if (!$authorId) fail(404, 'Post was not found.');
+        if ((string)$authorId !== (string)$user['id']) fail(403, 'You can only delete your own posts.');
+        $db->prepare('DELETE FROM social_posts WHERE id = ?')->execute([$postId]);
+        ok(['deleted' => true]);
+    }
+
+    if ($method === 'GET' && $path === '/comments') {
+        $postId = trim((string)($_GET['post_id'] ?? ''));
+        if ($postId === '') fail(422, 'Provide a post_id query parameter.');
+        $check = $db->prepare('SELECT 1 FROM social_posts WHERE id = ? LIMIT 1');
+        $check->execute([$postId]);
+        if (!$check->fetchColumn()) fail(404, 'Post was not found.');
+        $stmt = $db->prepare(
+            'SELECT c.id, c.post_id, c.author_id, c.content, c.created_at_ms, u.display_name
+             FROM post_comments c INNER JOIN users u ON u.id = c.author_id
+             WHERE c.post_id = ? ORDER BY c.created_at_ms ASC, c.id ASC LIMIT 100'
+        );
+        $stmt->execute([$postId]);
+        ok(['comments' => array_map('social_comment_payload', $stmt->fetchAll(PDO::FETCH_ASSOC))]);
+    }
+
+    if ($method === 'POST' && $path === '/comments') {
+        $postId = required_string($data, 'post_id', 64);
+        $content = required_string($data, 'content', 3000);
+        $check = $db->prepare('SELECT 1 FROM social_posts WHERE id = ? LIMIT 1');
+        $check->execute([$postId]);
+        if (!$check->fetchColumn()) fail(404, 'Post was not found.');
+        $id = 'comment_' . bin2hex(random_bytes(12));
+        $now = (int)floor(microtime(true) * 1000);
+        $db->prepare(
+            'INSERT INTO post_comments (id, post_id, author_id, content, created_at_ms) VALUES (?, ?, ?, ?, ?)'
+        )->execute([$id, $postId, $user['id'], $content, $now]);
+        $stmt = $db->prepare(
+            'SELECT c.id, c.post_id, c.author_id, c.content, c.created_at_ms, u.display_name
+             FROM post_comments c INNER JOIN users u ON u.id = c.author_id WHERE c.id = ? LIMIT 1'
+        );
+        $stmt->execute([$id]);
+        ok(['comment' => social_comment_payload($stmt->fetch(PDO::FETCH_ASSOC))], 201);
+    }
+
+    if ($method === 'GET' && $path === '/stories') {
+        $now = (int)floor(microtime(true) * 1000);
+        $stmt = $db->prepare(
+            'SELECT s.id, s.author_id, s.title, s.created_at_ms, u.display_name,
+                EXISTS(SELECT 1 FROM story_views v WHERE v.story_id = s.id AND v.user_id = ?) AS is_viewed
+             FROM user_stories s INNER JOIN users u ON u.id = s.author_id
+             WHERE s.expires_at_ms > ? ORDER BY s.created_at_ms DESC LIMIT 100'
+        );
+        $stmt->execute([$user['id'], $now]);
+        $stories = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $story) {
+            $stories[] = [
+                'id' => (string)$story['id'],
+                'author_id' => (string)$story['author_id'],
+                'author_name' => (string)$story['display_name'],
+                'author_avatar_color' => 4281639158,
+                'story_title' => (string)$story['title'],
+                'is_viewed' => (bool)$story['is_viewed'],
+                'timestamp' => (int)$story['created_at_ms'],
+            ];
+        }
+        ok(['stories' => $stories]);
+    }
+
+    if ($method === 'POST' && $path === '/stories') {
+        $title = required_string($data, 'title', 500);
+        $now = (int)floor(microtime(true) * 1000);
+        $id = 'story_' . bin2hex(random_bytes(12));
+        $db->prepare(
+            'INSERT INTO user_stories (id, author_id, title, created_at_ms, expires_at_ms) VALUES (?, ?, ?, ?, ?)'
+        )->execute([$id, $user['id'], $title, $now, $now + 86400000]);
+        ok(['story' => [
+            'id' => $id,
+            'author_id' => (string)$user['id'],
+            'author_name' => (string)$user['display_name'],
+            'author_avatar_color' => 4281639158,
+            'story_title' => $title,
+            'is_viewed' => false,
+            'timestamp' => $now,
+        ]], 201);
+    }
+
+    if ($method === 'POST' && $path === '/stories/view') {
+        $storyId = required_string($data, 'story_id', 64);
+        $check = $db->prepare('SELECT 1 FROM user_stories WHERE id = ? AND expires_at_ms > ? LIMIT 1');
+        $check->execute([$storyId, (int)floor(microtime(true) * 1000)]);
+        if (!$check->fetchColumn()) fail(404, 'Story is no longer available.');
+        $db->prepare(
+            'INSERT INTO story_views (story_id, user_id, viewed_at_ms) VALUES (?, ?, ?)
+             ON DUPLICATE KEY UPDATE viewed_at_ms = VALUES(viewed_at_ms)'
+        )->execute([$storyId, $user['id'], (int)floor(microtime(true) * 1000)]);
+        ok(['viewed' => true]);
     }
 
     if ($method === 'GET' && $path === '/conversations') {
