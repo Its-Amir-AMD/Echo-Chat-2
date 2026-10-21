@@ -410,9 +410,7 @@ fun ProfileAndSettingsSheet(
                 }
             }
 
-            // Cloud Account: hidden entirely when no Firebase project is linked, so this
-            // never shows a sign-in control that could not possibly work. See
-            // app/FIREBASE_SETUP.md to enable it.
+            // The server account section is shown only when the configured PHP API is reachable.
             if (accountState.isCloudAvailable) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
