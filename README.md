@@ -39,10 +39,10 @@ Use Android Studio and JDK 21. From `echochat-fixed-source/`, run:
 ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug
 ```
 
-The Android GitHub Actions workflow runs unit tests, lint and a debug APK build, then uploads the debug APK as a workflow artifact.
+The Android GitHub Actions workflow runs unit tests, lint, and debug plus release APK builds, then uploads both as workflow artifacts. A release APK is install-ready only when the repository Actions signing secrets are configured; otherwise the release artifact is unsigned.
 
 ## Release limitations
 
-This remains an MVP and must not be advertised as a complete production messenger yet. Password reset delivery, email verification, server-side login throttling, moderation and abuse reporting, account deletion/privacy workflows, push notifications, WebSockets, end-to-end encryption, media upload, delivery/read receipts, online presence and independent security testing remain to be completed. The social feed currently synchronizes text posts and text stories only. Echo AI requires server-side provider configuration.
+This remains an MVP and must not be advertised as a complete production messenger yet. Password reset delivery, email verification, email verification, password reset delivery, moderation and abuse reporting, account deletion/privacy workflows, push notifications, WebSockets, end-to-end encryption, media upload, delivery/read receipts, online presence and independent security testing remain to be completed. The social feed currently synchronizes text posts and text stories only. Echo AI requires server-side provider configuration.
 
-Before a public release, run two-account/two-device tests against the deployed HTTPS API, review the PHP host configuration and rate-limiting requirements, and create a release-signed APK using a private signing key.
+Before a public release, run two-account/two-device tests against the deployed HTTPS API, review the PHP host configuration and extend the basic rate limits for the expected traffic, and create a release-signed APK using a private signing key.
