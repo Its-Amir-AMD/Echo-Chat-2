@@ -10,6 +10,7 @@ import com.example.data.model.MessageEntity
 import com.example.data.model.PostEntity
 import com.example.data.model.StoryEntity
 import com.example.data.model.UserProfileEntity
+import com.example.ai.EchoAiService
 import com.example.data.repository.EchoChatRepository
 import com.example.util.AppLanguage
 import com.example.util.UserPreferences
