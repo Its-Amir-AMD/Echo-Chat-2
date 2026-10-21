@@ -179,6 +179,69 @@ function social_comment_payload(array $row): array {
     ];
 }
 
+function generate_ai_response(array $config, string $prompt): string {
+    $apiKey = trim((string)($config['ai_api_key'] ?? ''));
+    if ($apiKey === '') fail(503, 'Echo AI is not configured on this server.');
+
+    $endpoint = trim((string)($config['ai_endpoint'] ?? 'https://api.openai.com/v1/chat/completions'));
+    $url = parse_url($endpoint);
+    if (!is_array($url) || ($url['scheme'] ?? '') !== 'https' || empty($url['host']) || isset($url['user']) || isset($url['pass'])) {
+        fail(503, 'The Echo AI endpoint must be a valid HTTPS URL.');
+    }
+    if (!function_exists('curl_init')) fail(503, 'The PHP cURL extension is required for Echo AI.');
+
+    $model = trim((string)($config['ai_model'] ?? 'gpt-4o-mini'));
+    if ($model === '') fail(503, 'The Echo AI model is not configured.');
+    $requestBody = json_encode([
+        'model' => $model,
+        'messages' => [
+            ['role' => 'system', 'content' => 'You are Echo, a helpful assistant inside EchoChat. Reply in the same language as the user; prefer Persian when the user writes Persian. Be accurate, clear, safe and concise.'],
+            ['role' => 'user', 'content' => $prompt],
+        ],
+        'max_tokens' => 1200,
+        'temperature' => 0.7,
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if (!is_string($requestBody)) fail(500, 'Could not prepare the AI request.');
+
+    $handle = curl_init($endpoint);
+    if ($handle === false) fail(503, 'Could not initialize the AI HTTP client.');
+    curl_setopt_array($handle, [
+        CURLOPT_POST => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CONNECTTIMEOUT => 10,
+        CURLOPT_TIMEOUT => 45,
+        CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_SSL_VERIFYHOST => 2,
+        CURLOPT_HTTPHEADER => [
+            'Authorization: Bearer ' . $apiKey,
+            'Content-Type: application/json',
+            'Accept: application/json',
+        ],
+        CURLOPT_POSTFIELDS => $requestBody,
+    ]);
+    $body = curl_exec($handle);
+    $status = (int)curl_getinfo($handle, CURLINFO_RESPONSE_CODE);
+    $curlError = curl_error($handle);
+    curl_close($handle);
+
+    if (!is_string($body)) {
+        error_log('EchoChat AI transport error: ' . $curlError);
+        fail(502, 'The AI provider could not be reached.');
+    }
+    if ($status < 200 || $status >= 300) {
+        error_log('EchoChat AI provider returned HTTP ' . $status . '.');
+        fail(502, 'The AI provider rejected the request (HTTP ' . $status . ').');
+    }
+    try {
+        $decoded = json_decode($body, true, 32, JSON_THROW_ON_ERROR);
+    } catch (JsonException) {
+        fail(502, 'The AI provider returned invalid JSON.');
+    }
+    $reply = $decoded['choices'][0]['message']['content'] ?? '';
+    if (!is_string($reply) || trim($reply) === '') fail(502, 'The AI provider returned an empty response.');
+    return trim(mb_substr_safe(trim($reply), 12000));
+}
+
 try {
     // Works both when public/ is the document root and when its contents are
     // deployed into a subfolder such as public_html/echochat-api/.
@@ -259,12 +322,40 @@ try {
 
     if ($method === 'POST' && $path === '/auth/login') {
         $email = strtolower(required_string($data, 'email', 254));
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) fail(422, 'Enter a valid email address.');
         $password = $data['password'] ?? '';
-        if (!is_string($password) || $password === '') fail(422, 'Email and password are required.');
+        if (!is_string($password) || $password === '' || strlen($password) > 200) fail(422, 'Email and password are required.');
+
+        $emailHash = hash('sha256', $email);
+        $ipHash = hash('sha256', (string)($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
+        // Only hashes are retained; raw email addresses and IP addresses are not stored here.
+        $db->prepare('DELETE FROM auth_login_attempts WHERE attempted_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 DAY)')->execute();
+
+        $emailAttempts = $db->prepare(
+            'SELECT COUNT(*) FROM auth_login_attempts
+             WHERE email_hash = ? AND attempted_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 15 MINUTE)'
+        );
+        $emailAttempts->execute([$emailHash]);
+        if ((int)$emailAttempts->fetchColumn() >= 8) fail(429, 'Too many sign-in attempts for this account. Try again in 15 minutes.');
+
+        $ipAttempts = $db->prepare(
+            'SELECT COUNT(*) FROM auth_login_attempts
+             WHERE ip_hash = ? AND attempted_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 15 MINUTE)'
+        );
+        $ipAttempts->execute([$ipHash]);
+        if ((int)$ipAttempts->fetchColumn() >= 40) fail(429, 'Too many sign-in attempts from this network. Try again in 15 minutes.');
+
         $stmt = $db->prepare('SELECT id, password_hash FROM users WHERE email = ? LIMIT 1');
         $stmt->execute([$email]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        if (!$row || !password_verify($password, (string)$row['password_hash'])) fail(401, 'Invalid email or password.');
+        if (!$row || !password_verify($password, (string)$row['password_hash'])) {
+            $db->prepare('INSERT INTO auth_login_attempts (email_hash, ip_hash, attempted_at) VALUES (?, ?, UTC_TIMESTAMP())')
+                ->execute([$emailHash, $ipHash]);
+            fail(401, 'Invalid email or password.');
+        }
+
+        $db->prepare('DELETE FROM auth_login_attempts WHERE email_hash = ? AND ip_hash = ?')
+            ->execute([$emailHash, $ipHash]);
         $db->prepare('UPDATE users SET last_login_at = UTC_TIMESTAMP() WHERE id = ?')->execute([$row['id']]);
         ok(['token' => issue_token($db, (string)$row['id'], (int)($config['token_ttl_seconds'] ?? 2592000)), 'user' => find_user_by_id($db, (string)$row['id'])]);
     }
@@ -284,6 +375,23 @@ try {
     }
 
     $user = auth_user($db);
+
+    if ($method === 'POST' && $path === '/ai/respond') {
+        $prompt = required_string($data, 'prompt', 8000);
+        $db->prepare('DELETE FROM ai_requests WHERE requested_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 DAY)')->execute();
+        $requestCount = $db->prepare(
+            'SELECT COUNT(*) FROM ai_requests
+             WHERE user_id = ? AND requested_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 MINUTE)'
+        );
+        $requestCount->execute([(string)$user['id']]);
+        if ((int)$requestCount->fetchColumn() >= 5) {
+            fail(429, 'Echo AI request limit reached. Try again in a minute.');
+        }
+        // Store the usage before calling the provider so repeated failures cannot bypass the limit.
+        $db->prepare('INSERT INTO ai_requests (user_id, requested_at) VALUES (?, UTC_TIMESTAMP())')
+            ->execute([(string)$user['id']]);
+        ok(['reply' => generate_ai_response($config, $prompt)]);
+    }
 
     if ($method === 'GET' && $path === '/users') {
         $username = strtolower(trim((string)($_GET['username'] ?? '')));

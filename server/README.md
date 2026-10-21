@@ -1,58 +1,56 @@
 # EchoChat PHP + MySQL API
 
-This folder contains a self-hosted backend for Android account login, public chat rooms, username lookup, private conversations, and message history.
+This is the self-hosted backend for EchoChat Android. It implements accounts, public rooms, private conversations, message history and the text-based social feed. Android client authentication and sync use this API; Firebase is not required.
 
 ## Requirements
 
-- PHP 8.1+ with PDO MySQL enabled.
+- PHP 8.1+ with PDO MySQL.
 - MySQL 8+ (MariaDB 10.5+ may also work).
-- A domain/hosting account with HTTPS enabled.
-- Apache URL rewriting enabled for the supplied .htaccess file.
+- HTTPS hosting.
+- Apache URL rewriting enabled for the supplied `.htaccess`.
+- PHP cURL extension only if Echo AI is enabled.
 
 ## Deploy to shared hosting
 
-1. Create a MySQL database and a database user in the hosting control panel. Grant the user access only to this database.
-2. Import the SQL file at server/database/schema.sql using phpMyAdmin or the host's SQL importer.
-3. Copy server/config.example.php to config.php and enter the actual database host, database name, username, and password. Never commit real credentials.
-4. Upload the contents of server/public/ into a web folder such as public_html/echochat-api/. Keep config.php outside the public web root. If you upload the public folder's contents into public_html/echochat-api/, place config.php in the hosting account's private home directory (usually one level above public_html). The API checks that private location. If you instead preserve the original server/public directory layout, keep config.php alongside server/public, outside the public web root. Do not leave real config credentials anywhere directly downloadable from the website.
-5. Confirm .htaccess rewriting is enabled and install a valid HTTPS certificate.
-6. Open https://YOUR_DOMAIN/echochat-api/health. The response should contain ok: true and database: connected.
-7. In EchoChat, enter https://YOUR_DOMAIN/echochat-api in the server URL field and tap Connect.
+1. Create a MySQL database and a least-privilege database user.
+2. Import `server/database/schema.sql` using phpMyAdmin or the host SQL importer. Re-importing is safe for existing tables because the schema uses `CREATE TABLE IF NOT EXISTS`; it adds the login-attempt and AI-request tables.
+3. Copy `server/config.example.php` to a private `config.php` outside the public web root. Enter the database credentials there.
+4. Upload the contents of `server/public/` to a folder such as `public_html/echochat-api/`. Keep the private config file outside directly downloadable folders.
+5. Enable URL rewriting and install a valid HTTPS certificate.
+6. Open `https://YOUR_DOMAIN/echochat-api/health`; a healthy response reports `ok: true` and `database: connected`.
+7. In EchoChat, set the server URL to the folder containing `index.php`, then register and sign in.
 
-The base URL must point to the folder containing index.php. Do not add /index.php to it.
+Never commit real database credentials, bearer tokens or provider keys.
 
 ## API routes
 
-- GET /health — check the API and database connection.
-- POST /auth/register — create an account and access token.
-- POST /auth/login — sign in with email and password.
-- GET /auth/me — validate the current session.
-- POST /auth/logout — revoke the current token.
-- GET /users?username=handle — exact username lookup.
-- GET /rooms — list public rooms.
-- POST /rooms — create a public room for the signed-in account.
-- GET /posts — list the latest social posts with per-user likes/bookmarks.
-- POST /posts — publish a text post.
-- POST /posts/like — toggle the signed-in user's like on a post.
-- POST /posts/bookmark — toggle a saved-post bookmark.
-- POST /posts/delete — delete a post owned by the signed-in user.
-- GET /comments?post_id=... — list comments for a post.
-- POST /comments — publish a comment.
-- GET /stories — list unexpired stories and per-user view state.
-- POST /stories — publish a text story (expires after 24 hours).
-- POST /stories/view — mark an active story as viewed.
-- GET /conversations — list the signed-in user's private conversations.
-- POST /conversations — create or return a private conversation for a username.
-- GET /messages?room_id=general — recent messages for a public room.
-- GET /messages?conversation_id=dm_... — recent messages in a private conversation.
-- POST /messages — send a message. channel_id is a room id or conversation id.
+- `GET /health` — API/database health check.
+- `POST /auth/register`, `POST /auth/login` — create an account or sign in.
+- `GET /auth/me`, `POST /auth/logout` — validate or revoke a session.
+- `GET /users?username=handle` — exact username lookup.
+- `GET /rooms`, `POST /rooms` — public rooms.
+- `GET /posts`, `POST /posts` — text feed.
+- `POST /posts/like`, `POST /posts/bookmark`, `POST /posts/delete` — post interactions.
+- `GET /comments?post_id=...`, `POST /comments` — comments.
+- `GET /stories`, `POST /stories`, `POST /stories/view` — text stories that expire after 24 hours.
+- `GET /conversations`, `POST /conversations` — private one-to-one conversations.
+- `GET /messages?room_id=...` or `?conversation_id=...`, `POST /messages` — message history and sending.
+- `POST /ai/respond` — authenticated Echo AI request (optional provider configuration required).
 
-Success responses use an ok/data JSON envelope. Errors use ok: false and an error message.
+Success responses use an `ok/data` JSON envelope; errors use `ok: false` with an error message.
 
-## Security and MVP boundaries
+## Optional Echo AI
 
-Passwords are stored with PHP password_hash, SQL uses prepared statements, and bearer tokens are random values whose SHA-256 hashes are stored in MySQL. Tokens expire and logout revokes them. Private message reads and writes require membership. Email addresses are not returned by username search.
+The `/ai/respond` route forwards authenticated prompts to an OpenAI-compatible chat-completions endpoint. Configure the following in the private server `config.php`:
 
-Serve this API only over HTTPS. Keep configuration credentials outside the public web root, use a least-privilege database user, keep backups, and don't publish database credentials or access tokens.
+- `ai_api_key` — provider secret key.
+- `ai_endpoint` — HTTPS chat-completions endpoint.
+- `ai_model` — model ID supported by the provider.
 
-This is an MVP, not yet a public-release-ready service. Before a broad release, add and test login throttling, email verification and password-reset delivery, abuse reporting/moderation, privacy and account-deletion workflows, data retention, monitoring, and independent security testing. Messages and social-feed data are refreshed by polling while the app is open; push notifications, WebSockets, end-to-end encryption, media uploads, delivery/read receipts, online presence, server-backed profile editing, and Echo AI synchronization are not included.
+The example config defaults the endpoint and model but leaves the key empty. The server returns a clear configuration error until the key is supplied. Provider credentials remain on the server and are never packaged into the Android APK. The request is sent only over HTTPS with certificate verification enabled.
+
+## Security and MVP limits
+
+Passwords use PHP `password_hash`; SQL uses prepared statements; bearer tokens are random values whose SHA-256 hashes are stored in MySQL; tokens expire and logout revokes them. Private-message reads and writes require conversation membership. API credentials must remain outside the public web root, and the API should be served over HTTPS only.
+
+The API includes basic server-side limits of 8 failed attempts per email and 40 per source IP in a 15-minute window, plus 5 Echo AI requests per user per minute. These are lightweight safeguards, not a replacement for a WAF, host-level throttling, monitoring or a security audit. Email verification, password reset delivery, moderation and abuse controls, account deletion/privacy workflows, data retention, monitoring, push notifications, WebSockets, end-to-end encryption, media uploads, read/delivery receipts, online presence, profile editing and independent security testing remain unfinished. Messages and feed data use polling while the app is open; text posts and text stories are synchronized but media isn't uploaded yet.

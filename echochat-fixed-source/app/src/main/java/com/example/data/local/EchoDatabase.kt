@@ -125,7 +125,7 @@ abstract class EchoDatabase : RoomDatabase() {
 
         private val MIGRATION_5_6 = object : Migration(5, 6) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                // Track Firestore upload state independently of message delivery/read receipts.
+                // Track PHP API acknowledgement independently of message delivery/read receipts.
                 db.execSQL("ALTER TABLE messages ADD COLUMN isSynced INTEGER NOT NULL DEFAULT 0")
             }
         }

@@ -119,9 +119,9 @@ fun AuthScreen(
                         )
                         Text(
                             text = if (isPersian)
-                                "برای ورود و گفتگو، آدرس بک‌اند PHP/MySQL خودت را وارد کن. این نسخه به Firebase نیاز ندارد."
+                                "برای ورود و همگام‌سازی گفتگوها، آدرس سرور PHP/MySQL خودت را وارد کن."
                             else
-                                "Enter your self-hosted PHP/MySQL API URL to sign in and chat. This version does not require Firebase.",
+                                "Enter your self-hosted PHP/MySQL server URL to sign in and sync conversations.",
                             style = MaterialTheme.typography.bodyMedium
                         )
                         OutlinedTextField(

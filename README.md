@@ -1,32 +1,48 @@
 # EchoChat
 
-EchoChat is a native Android messenger built with Kotlin, Jetpack Compose, Room and a self-hosted PHP/MySQL API.
+EchoChat is a native Android social messenger built with Kotlin, Jetpack Compose and Room, backed by a self-hosted PHP 8.1+ REST API and MySQL. **The application has no Firebase SDK or Firebase runtime dependency.**
 
-## Current branch
+## Features in the current MVP
 
-The PHP/MySQL backend supports email/password registration and login, server-backed public rooms, username lookup, private two-person conversations, message history, and a text-based social feed with posts, likes, bookmarks, comments and 24-hour text stories. Development improvements are being prepared in the separate feat/echochat-ux-rebuild branch; main is not changed by that work.
+- Email/password registration, login, session validation and logout through PHP.
+- Public rooms, username lookup, private one-to-one conversations and server-backed message history.
+- Local Room cache and retry of queued outgoing messages.
+- Server-synchronized text posts, likes, bookmarks, comments and 24-hour text stories.
+- Explore feed with search and category filters, plus profile, saved posts, Persian/English UI and light/dark themes.
+- Optional Echo AI routed through an authenticated PHP endpoint. Provider credentials stay on the server and are not bundled into the APK.
 
-## Main folders
+## Repository layout
 
-- Android source: echochat-fixed-source/
-- PHP REST API and deployment notes: server/
-- MySQL schema: server/database/schema.sql
-- Android API client: echochat-fixed-source/app/src/main/java/com/example/data/remote/PhpApiClient.kt
+- Android project: `echochat-fixed-source/`
+- PHP REST API: `server/public/`
+- MySQL schema: `server/database/schema.sql`
+- Server configuration template: `server/config.example.php`
+- Android PHP API client: `echochat-fixed-source/app/src/main/java/com/example/data/remote/PhpApiClient.kt`
 
-## Try it
+## Configure the PHP backend
 
-1. Deploy the PHP API to a hosting account with PHP 8.1+, PDO MySQL and HTTPS.
-2. Import the SQL schema and set private database credentials outside the public web root.
-3. Check the API health endpoint at your server URL plus /health.
-4. Install the Android app and enter the base URL of the folder containing index.php.
-5. Register two different accounts on separate devices to test public and private messaging.
+1. Deploy the contents of `server/public/` to HTTPS hosting with PHP 8.1+, PDO MySQL and the PHP cURL extension (needed only if Echo AI is enabled).
+2. Create a MySQL database and import `server/database/schema.sql`.
+3. Copy `server/config.example.php` to a private `config.php` outside the public web root and set the database credentials.
+4. Check `https://YOUR_DOMAIN/echochat-api/health`; it should report `ok: true` and `database: connected`.
+5. In the app, enter the base URL of the folder containing `index.php`, connect, then register accounts.
 
-See server/README.md for step-by-step setup and security notes.
+To enable Echo AI, set `ai_api_key`, `ai_endpoint` and `ai_model` in the private server config to an OpenAI-compatible chat-completions service. Keep those credentials private. If the AI provider is not configured, the endpoint returns an error rather than a fabricated response.
 
-## Build
+See [server/README.md](server/README.md) for deployment instructions and API routes.
 
-Use Android Studio with JDK 21. From the echochat-fixed-source folder, run the Gradle tasks testDebugUnitTest, lintDebug, and assembleDebug. GitHub Actions also runs these checks and uploads a debug APK.
+## Build and CI
 
-## Limitations
+Use Android Studio and JDK 21. From `echochat-fixed-source/`, run:
 
-This is an MVP, not yet a production-ready release. Email verification and password reset, rate limiting, moderation, account deletion/privacy workflows, push notifications, WebSockets, end-to-end encryption, media uploads, read/delivery receipts and online presence are not included. Media uploads, server-backed profile editing, and Echo AI synchronization are not implemented by this API yet. The Explore feed uses text posts and text stories at this stage. Test on two accounts/devices and review the security/rate-limit requirements before publishing.
+```bash
+./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug
+```
+
+The Android GitHub Actions workflow runs unit tests, lint, and debug plus release APK builds, then uploads both as workflow artifacts. A release APK is install-ready only when the repository Actions signing secrets are configured; otherwise the release artifact is unsigned.
+
+## Release limitations
+
+This remains an MVP and must not be advertised as a complete production messenger yet. Password reset delivery, email verification, email verification, password reset delivery, moderation and abuse reporting, account deletion/privacy workflows, push notifications, WebSockets, end-to-end encryption, media upload, delivery/read receipts, online presence and independent security testing remain to be completed. The social feed currently synchronizes text posts and text stories only. Echo AI requires server-side provider configuration.
+
+Before a public release, run two-account/two-device tests against the deployed HTTPS API, review the PHP host configuration and extend the basic rate limits for the expected traffic, and create a release-signed APK using a private signing key.

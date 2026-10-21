@@ -116,11 +116,11 @@ object EchoStrings {
         "more_options" to "گزینه‌های بیشتر",
         "theme_toggle" to "تغییر پوسته",
         "user_avatar" to "نمایه کاربر",
-        "cloud_account_title" to "حساب ابری",
+        "cloud_account_title" to "حساب سرور",
         "cloud_account_signed_in_as" to "وارد شده با",
-        "cloud_account_sign_in" to "ورود با گوگل برای همگام‌سازی",
+        "cloud_account_sign_in" to "ورود به سرور برای همگام‌سازی",
         "cloud_account_sign_out" to "خروج از حساب",
-        "cloud_account_unavailable" to "همگام‌سازی ابری برای این نسخه پیکربندی نشده است."
+        "cloud_account_unavailable" to "همگام‌سازی سرور برای این نسخه پیکربندی نشده است."
     )
 
     private val enStrings = mapOf(
@@ -231,11 +231,11 @@ object EchoStrings {
         "more_options" to "More options",
         "theme_toggle" to "Toggle theme",
         "user_avatar" to "User avatar",
-        "cloud_account_title" to "Cloud Account",
+        "cloud_account_title" to "Server Account",
         "cloud_account_signed_in_as" to "Signed in as",
-        "cloud_account_sign_in" to "Sign in with Google to sync",
+        "cloud_account_sign_in" to "Sign in to the server to sync",
         "cloud_account_sign_out" to "Sign out",
-        "cloud_account_unavailable" to "Cloud sync is not configured for this build."
+        "cloud_account_unavailable" to "Server sync is not configured for this build."
     )
 
     fun get(key: String, language: AppLanguage): String {

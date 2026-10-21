@@ -165,6 +165,19 @@ class PhpApiClient(context: Context) {
         return data.optString("database", "unknown")
     }
 
+    suspend fun generateAiReply(prompt: String): String {
+        val cleanPrompt = prompt.trim()
+        require(cleanPrompt.isNotEmpty()) { "متن پیام خالی است." }
+        require(cleanPrompt.length <= 8_000) { "پیام بیش از حد طولانی است." }
+        val data = request(
+            "POST",
+            "/ai/respond",
+            JSONObject().put("prompt", cleanPrompt)
+        )
+        return data.optString("reply").trim().takeIf(String::isNotEmpty)
+            ?: throw IOException("سرور پاسخ معتبری از دستیار هوشمند دریافت نکرد.")
+    }
+
     suspend fun login(email: String, password: String): ApiUser {
         require(email.contains("@")) { "ایمیل معتبر وارد کنید." }
         require(password.isNotEmpty()) { "رمز عبور را وارد کنید." }

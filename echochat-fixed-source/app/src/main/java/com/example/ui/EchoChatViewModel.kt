@@ -10,6 +10,7 @@ import com.example.data.model.MessageEntity
 import com.example.data.model.PostEntity
 import com.example.data.model.StoryEntity
 import com.example.data.model.UserProfileEntity
+import com.example.ai.EchoAiService
 import com.example.data.repository.EchoChatRepository
 import com.example.util.AppLanguage
 import com.example.util.UserPreferences
@@ -54,7 +55,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     init {
         val database = EchoDatabase.getInstance(application)
         dao = database.chatDao()
-        repository = EchoChatRepository(dao, viewModelScope)
+        repository = EchoChatRepository(dao, viewModelScope, EchoAiService { prompt -> api.generateAiReply(prompt) })
 
         if (!api.isConfigured) {
             _accountState.value = AccountUiState(isCloudAvailable = false)
@@ -770,7 +771,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
  * UI-facing snapshot of cloud account state.
  *
  * isCloudAvailable indicates whether the self-hosted PHP API URL has been tested.
- * Chat authentication and message synchronization do not require a Firebase project.
+ * Authentication and synchronization are handled by the configured PHP/MySQL API.
  */
 data class AccountUiState(
     val isCloudAvailable: Boolean = false,
