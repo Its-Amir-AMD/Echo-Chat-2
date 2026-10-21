@@ -5,11 +5,8 @@ import androidx.room.ColumnInfo
 import androidx.room.PrimaryKey
 import androidx.room.Index
 
-// Note: every field below has a default value, even the ones that are always supplied
-// explicitly throughout the app. This keeps these classes compatible with Firestore's
-// toObject(), which requires a no-argument constructor to deserialize documents synced
-// from other devices (see FirestoreSyncManager). It has no effect on Room, which already
-// reads/writes every column by name.
+// Default values make entities safe to create for local/offline state. Room persists
+// each column by name; remote data is mapped explicitly by the PHP API client.
 @Entity(tableName = "channels", indices = [Index(value = ["lastMessageTime"])])
 data class ChannelEntity(
     @PrimaryKey val id: String = "",
@@ -40,7 +37,7 @@ data class MessageEntity(
     val replyToId: String? = null,
     val replyToSnippet: String? = null,
     val reaction: String? = null,
-    // Local-only queue state. True once Firestore has acknowledged this message.
+    // Queue state: true after the PHP API acknowledges this message.
     @ColumnInfo(defaultValue = "0") val isSynced: Boolean = false
 )
 
@@ -95,22 +92,4 @@ data class StoryEntity(
     val isViewed: Boolean = false,
     val timestamp: Long = System.currentTimeMillis()
 )
-
-
-/** Public directory data. Email addresses are deliberately not stored in this public document. */
-data class CloudPublicUser(
-    val uid: String = "",
-    val username: String = "",
-    val displayName: String = "",
-    val createdAt: Long = 0L
-)
-
-/** Membership-protected private conversation metadata stored in Firestore. */
-data class DirectConversationDocument(
-    val id: String = "",
-    val memberIds: List<String> = emptyList(),
-    val memberNames: Map<String, String> = emptyMap(),
-    val createdAt: Long = 0L,
-    val lastMessage: String = "",
-    val lastMessageTime: Long = 0L
-)
+\n
