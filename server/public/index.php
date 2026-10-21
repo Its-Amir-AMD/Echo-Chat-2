@@ -322,12 +322,40 @@ try {
 
     if ($method === 'POST' && $path === '/auth/login') {
         $email = strtolower(required_string($data, 'email', 254));
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) fail(422, 'Enter a valid email address.');
         $password = $data['password'] ?? '';
-        if (!is_string($password) || $password === '') fail(422, 'Email and password are required.');
+        if (!is_string($password) || $password === '' || strlen($password) > 200) fail(422, 'Email and password are required.');
+
+        $emailHash = hash('sha256', $email);
+        $ipHash = hash('sha256', (string)($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
+        // Only hashes are retained; raw email addresses and IP addresses are not stored here.
+        $db->prepare('DELETE FROM auth_login_attempts WHERE attempted_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 DAY)')->execute();
+
+        $emailAttempts = $db->prepare(
+            'SELECT COUNT(*) FROM auth_login_attempts
+             WHERE email_hash = ? AND attempted_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 15 MINUTE)'
+        );
+        $emailAttempts->execute([$emailHash]);
+        if ((int)$emailAttempts->fetchColumn() >= 8) fail(429, 'Too many sign-in attempts for this account. Try again in 15 minutes.');
+
+        $ipAttempts = $db->prepare(
+            'SELECT COUNT(*) FROM auth_login_attempts
+             WHERE ip_hash = ? AND attempted_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 15 MINUTE)'
+        );
+        $ipAttempts->execute([$ipHash]);
+        if ((int)$ipAttempts->fetchColumn() >= 40) fail(429, 'Too many sign-in attempts from this network. Try again in 15 minutes.');
+
         $stmt = $db->prepare('SELECT id, password_hash FROM users WHERE email = ? LIMIT 1');
         $stmt->execute([$email]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        if (!$row || !password_verify($password, (string)$row['password_hash'])) fail(401, 'Invalid email or password.');
+        if (!$row || !password_verify($password, (string)$row['password_hash'])) {
+            $db->prepare('INSERT INTO auth_login_attempts (email_hash, ip_hash, attempted_at) VALUES (?, ?, UTC_TIMESTAMP())')
+                ->execute([$emailHash, $ipHash]);
+            fail(401, 'Invalid email or password.');
+        }
+
+        $db->prepare('DELETE FROM auth_login_attempts WHERE email_hash = ? AND ip_hash = ?')
+            ->execute([$emailHash, $ipHash]);
         $db->prepare('UPDATE users SET last_login_at = UTC_TIMESTAMP() WHERE id = ?')->execute([$row['id']]);
         ok(['token' => issue_token($db, (string)$row['id'], (int)($config['token_ttl_seconds'] ?? 2592000)), 'user' => find_user_by_id($db, (string)$row['id'])]);
     }
@@ -350,6 +378,18 @@ try {
 
     if ($method === 'POST' && $path === '/ai/respond') {
         $prompt = required_string($data, 'prompt', 8000);
+        $db->prepare('DELETE FROM ai_requests WHERE requested_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 DAY)')->execute();
+        $requestCount = $db->prepare(
+            'SELECT COUNT(*) FROM ai_requests
+             WHERE user_id = ? AND requested_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 MINUTE)'
+        );
+        $requestCount->execute([(string)$user['id']]);
+        if ((int)$requestCount->fetchColumn() >= 5) {
+            fail(429, 'Echo AI request limit reached. Try again in a minute.');
+        }
+        // Store the usage before calling the provider so repeated failures cannot bypass the limit.
+        $db->prepare('INSERT INTO ai_requests (user_id, requested_at) VALUES (?, UTC_TIMESTAMP())')
+            ->execute([(string)$user['id']]);
         ok(['reply' => generate_ai_response($config, $prompt)]);
     }
 
