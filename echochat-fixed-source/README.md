@@ -5,7 +5,8 @@ Native Android application built with Kotlin, Jetpack Compose, Room, coroutines 
 ## Implemented in this branch
 
 - Email/password registration and login through the PHP API.
-- HTTPS server configuration from inside the app; the configured URL is stored privately on the device.
+- Uses `https://chat.userdesk.ir/chat` as the default PHP API endpoint and checks `/health` automatically on launch.
+- HTTPS server configuration is stored privately on the device; public HTTP endpoints are rejected to protect passwords and bearer tokens.
 - Public chat rooms, exact username lookup and member-protected private conversations.
 - Local Room caching and retry of queued outgoing messages.
 - Message history refresh through polling while the app is open.
@@ -13,7 +14,7 @@ Native Android application built with Kotlin, Jetpack Compose, Room, coroutines 
 
 ## Server setup
 
-Follow the steps in ../server/README.md. The API URL in the app must point to the folder containing index.php, for example https://yourdomain.com/echochat-api. The backend health route at URL + /health should return ok: true and database: connected.
+The app defaults to `https://chat.userdesk.ir/chat`. Its health route is `https://chat.userdesk.ir/chat/health` and should return `ok: true` with `data.database: connected`. The endpoint must have a valid HTTPS certificate; the app intentionally rejects public HTTP URLs. For a different deployment, follow the steps in ../server/README.md.
 
 The SQL schema seeds three public rooms: general, technology and help. You can customize their names and descriptions in the rooms table after installation.
 

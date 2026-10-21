@@ -18,7 +18,7 @@ The PHP/MySQL backend version is being developed in feat/php-mysql-backend-v2. I
 1. Deploy the PHP API to a hosting account with PHP 8.1+, PDO MySQL and HTTPS.
 2. Import the SQL schema and set private database credentials outside the public web root.
 3. Check the API health endpoint at your server URL plus /health.
-4. Install the Android app and enter the base URL of the folder containing index.php.
+4. Install the Android app; it defaults to `https://chat.userdesk.ir/chat` and checks `/health` automatically. Make sure this endpoint is available over valid HTTPS.
 5. Register two different accounts on separate devices to test public and private messaging.
 
 See server/README.md for step-by-step setup and security notes.
