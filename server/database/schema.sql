@@ -78,3 +78,69 @@ INSERT IGNORE INTO rooms (id, name, description, icon_name) VALUES
   ('general', 'گفتگوی عمومی / General', 'بحث و گفتگو پیرامون موضوعات مختلف', 'forum'),
   ('tech', 'توسعه و فناوری / Tech Talk', 'برنامه‌نویسی اندروید، کاتلین و جت‌پک کامپوز', 'code'),
   ('design', 'طراحی و رابط کاربری / UI & UX', 'اصول طراحی، رنگ‌ها و تجربه کاربری مدرن', 'palette');
+
+
+-- Social feed: text posts, per-user reactions/bookmarks, comments and expiring stories.
+CREATE TABLE IF NOT EXISTS social_posts (
+  id VARCHAR(64) NOT NULL PRIMARY KEY,
+  author_id VARCHAR(64) NOT NULL,
+  content VARCHAR(10000) NOT NULL,
+  tags VARCHAR(500) NOT NULL DEFAULT '',
+  category VARCHAR(16) NOT NULL DEFAULT 'tech',
+  created_at_ms BIGINT NOT NULL,
+  KEY idx_social_posts_created (created_at_ms, id),
+  KEY idx_social_posts_author (author_id, created_at_ms),
+  CONSTRAINT fk_social_posts_author FOREIGN KEY (author_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS post_likes (
+  post_id VARCHAR(64) NOT NULL,
+  user_id VARCHAR(64) NOT NULL,
+  created_at_ms BIGINT NOT NULL,
+  PRIMARY KEY (post_id, user_id),
+  KEY idx_post_likes_user (user_id, created_at_ms),
+  CONSTRAINT fk_post_likes_post FOREIGN KEY (post_id) REFERENCES social_posts(id) ON DELETE CASCADE,
+  CONSTRAINT fk_post_likes_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS post_bookmarks (
+  post_id VARCHAR(64) NOT NULL,
+  user_id VARCHAR(64) NOT NULL,
+  created_at_ms BIGINT NOT NULL,
+  PRIMARY KEY (post_id, user_id),
+  KEY idx_post_bookmarks_user (user_id, created_at_ms),
+  CONSTRAINT fk_post_bookmarks_post FOREIGN KEY (post_id) REFERENCES social_posts(id) ON DELETE CASCADE,
+  CONSTRAINT fk_post_bookmarks_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS post_comments (
+  id VARCHAR(64) NOT NULL PRIMARY KEY,
+  post_id VARCHAR(64) NOT NULL,
+  author_id VARCHAR(64) NOT NULL,
+  content VARCHAR(3000) NOT NULL,
+  created_at_ms BIGINT NOT NULL,
+  KEY idx_post_comments_post (post_id, created_at_ms),
+  KEY idx_post_comments_author (author_id, created_at_ms),
+  CONSTRAINT fk_post_comments_post FOREIGN KEY (post_id) REFERENCES social_posts(id) ON DELETE CASCADE,
+  CONSTRAINT fk_post_comments_author FOREIGN KEY (author_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS user_stories (
+  id VARCHAR(64) NOT NULL PRIMARY KEY,
+  author_id VARCHAR(64) NOT NULL,
+  title VARCHAR(500) NOT NULL,
+  created_at_ms BIGINT NOT NULL,
+  expires_at_ms BIGINT NOT NULL,
+  KEY idx_user_stories_expiry (expires_at_ms, created_at_ms),
+  CONSTRAINT fk_user_stories_author FOREIGN KEY (author_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS story_views (
+  story_id VARCHAR(64) NOT NULL,
+  user_id VARCHAR(64) NOT NULL,
+  viewed_at_ms BIGINT NOT NULL,
+  PRIMARY KEY (story_id, user_id),
+  KEY idx_story_views_user (user_id, viewed_at_ms),
+  CONSTRAINT fk_story_views_story FOREIGN KEY (story_id) REFERENCES user_stories(id) ON DELETE CASCADE,
+  CONSTRAINT fk_story_views_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

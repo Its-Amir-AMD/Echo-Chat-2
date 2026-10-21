@@ -336,7 +336,7 @@ fun MainScreen(
                                 onStoryClick = { viewModel.markStoryViewed(it) },
                                 onCreatePostClick = { showCreatePostDialog = true },
                                 onCreateStory = { viewModel.createStory(it) },
-                                onCommentsClick = { selectedPostForComments = it }
+                                onCommentsClick = { selectedPostForComments = it; viewModel.refreshComments(it.id) }
                             )
                         }
                         2 -> {
@@ -345,7 +345,7 @@ fun MainScreen(
                                 language = currentLanguage,
                                 onLikePost = { id, liked, count -> viewModel.toggleLikePost(id, liked, count) },
                                 onBookmarkPost = { id, bookmarked -> viewModel.toggleBookmarkPost(id, bookmarked) },
-                                onCommentsClick = { selectedPostForComments = it }
+                                onCommentsClick = { selectedPostForComments = it; viewModel.refreshComments(it.id) }
                             )
                         }
                         3 -> {
@@ -360,7 +360,7 @@ fun MainScreen(
                                 onClearChat = { viewModel.clearChat() },
                                 onLikePost = { id, liked, count -> viewModel.toggleLikePost(id, liked, count) },
                                 onBookmarkPost = { id, bookmarked -> viewModel.toggleBookmarkPost(id, bookmarked) },
-                                onCommentsClick = { selectedPostForComments = it }
+                                onCommentsClick = { selectedPostForComments = it; viewModel.refreshComments(it.id) }
                             )
                         }
                     }
@@ -440,7 +440,7 @@ fun MainScreen(
                                 onStoryClick = { viewModel.markStoryViewed(it) },
                                 onCreatePostClick = { showCreatePostDialog = true },
                                 onCreateStory = { viewModel.createStory(it) },
-                                onCommentsClick = { selectedPostForComments = it }
+                                onCommentsClick = { selectedPostForComments = it; viewModel.refreshComments(it.id) }
                             )
                         }
                         2 -> {
@@ -449,7 +449,7 @@ fun MainScreen(
                                 language = currentLanguage,
                                 onLikePost = { id, liked, count -> viewModel.toggleLikePost(id, liked, count) },
                                 onBookmarkPost = { id, bookmarked -> viewModel.toggleBookmarkPost(id, bookmarked) },
-                                onCommentsClick = { selectedPostForComments = it }
+                                onCommentsClick = { selectedPostForComments = it; viewModel.refreshComments(it.id) }
                             )
                         }
                         3 -> {
@@ -464,7 +464,7 @@ fun MainScreen(
                                 onClearChat = { viewModel.clearChat() },
                                 onLikePost = { id, liked, count -> viewModel.toggleLikePost(id, liked, count) },
                                 onBookmarkPost = { id, bookmarked -> viewModel.toggleBookmarkPost(id, bookmarked) },
-                                onCommentsClick = { selectedPostForComments = it }
+                                onCommentsClick = { selectedPostForComments = it; viewModel.refreshComments(it.id) }
                             )
                         }
                     }
@@ -501,9 +501,8 @@ fun MainScreen(
         CreatePostDialog(
             language = currentLanguage,
             onDismiss = { showCreatePostDialog = false },
-            onPublish = { content, tags, category ->
-                viewModel.createPost(content, tags, category)
-                showCreatePostDialog = false
+            onPublish = { content, tags, category, onComplete ->
+                viewModel.createPost(content, tags, category, onComplete)
             }
         )
     }

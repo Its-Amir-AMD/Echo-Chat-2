@@ -518,11 +518,13 @@ fun PostCard(
 fun CreatePostDialog(
     language: AppLanguage,
     onDismiss: () -> Unit,
-    onPublish: (content: String, tags: String, category: String) -> Unit
+    onPublish: (content: String, tags: String, category: String, onComplete: (String?) -> Unit) -> Unit
 ) {
     var content by remember { mutableStateOf("") }
     var tags by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("tech") }
+    var isPublishing by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
     val categories = listOf(
         "tech" to EchoStrings.get("filter_tech", language),
@@ -559,6 +561,14 @@ fun CreatePostDialog(
                     singleLine = true
                 )
 
+                errorMessage?.let { message ->
+                    Text(
+                        text = message,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+
                 Text(
                     text = EchoStrings.get("post_category_label", language),
                     fontSize = 12.sp,
@@ -590,14 +600,23 @@ fun CreatePostDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    if (content.isNotBlank()) {
-                        onPublish(content.trim(), tags.trim(), selectedCategory)
+                    if (content.isNotBlank() && !isPublishing) {
+                        isPublishing = true
+                        errorMessage = null
+                        onPublish(content.trim(), tags.trim(), selectedCategory) { error ->
+                            isPublishing = false
+                            if (error == null) onDismiss() else errorMessage = error
+                        }
                     }
                 },
-                enabled = content.isNotBlank(),
+                enabled = content.isNotBlank() && !isPublishing,
                 modifier = Modifier.testTag("publish_post_button")
             ) {
-                Text(EchoStrings.get("publish", language))
+                Text(if (isPublishing) {
+                    if (language == AppLanguage.PERSIAN) "در حال انتشار..." else "Publishing..."
+                } else {
+                    EchoStrings.get("publish", language)
+                })
             }
         },
         dismissButton = {
