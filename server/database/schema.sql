@@ -26,6 +26,19 @@ CREATE TABLE IF NOT EXISTS auth_tokens (
   CONSTRAINT fk_tokens_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+
+-- Authentication throttling: store keyed hashes, never raw email/IP values.
+CREATE TABLE IF NOT EXISTS auth_attempts (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  action VARCHAR(16) NOT NULL,
+  identity_hash CHAR(64) NOT NULL,
+  ip_hash CHAR(64) NOT NULL,
+  was_successful TINYINT(1) NOT NULL DEFAULT 0,
+  attempted_at DATETIME NOT NULL,
+  KEY idx_auth_attempt_identity (action, identity_hash, attempted_at),
+  KEY idx_auth_attempt_ip (action, ip_hash, attempted_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS rooms (
   id VARCHAR(64) NOT NULL PRIMARY KEY,
   name VARCHAR(100) NOT NULL,
