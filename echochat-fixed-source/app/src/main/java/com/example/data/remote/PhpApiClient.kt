@@ -213,6 +213,21 @@ class PhpApiClient(context: Context) {
         }
     }
 
+    /** Generate Echo AI replies through the self-hosted PHP backend; provider keys never reach the app. */
+    suspend fun generateAIReply(prompt: String): String {
+        val cleanPrompt = prompt.trim()
+        require(cleanPrompt.isNotEmpty()) { "پیام خالی است." }
+        require(cleanPrompt.length <= 6000) { "پیام برای هوش مصنوعی بیش از حد طولانی است." }
+        val data = request(
+            "POST",
+            "/ai/reply",
+            JSONObject().put("prompt", cleanPrompt)
+        )
+        return data.optString("reply").trim().also {
+            if (it.isEmpty()) throw IOException("PHP AI API پاسخ معتبری برنگرداند.")
+        }
+    }
+
     suspend fun getRooms(): List<ApiRoom> {
         val array = request("GET", "/rooms").getJSONArray("rooms")
         return buildList {
