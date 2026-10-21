@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   syntax:
-    name: PHP syntax validation
+    name: PHP syntax and API contract checks
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -29,3 +29,9 @@ jobs:
         run: |
           php -l server/config.example.php
           php -l server/public/index.php
+      - name: Verify PHP-only backend contract
+        run: |
+          grep -q "CREATE TABLE IF NOT EXISTS auth_attempts" server/database/schema.sql
+          grep -q "function enforce_auth_rate_limit" server/public/index.php
+          grep -q "POST.*auth/register" server/README.md
+          grep -q "POST.*auth/login" server/README.md
