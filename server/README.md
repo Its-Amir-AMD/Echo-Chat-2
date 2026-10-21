@@ -29,6 +29,7 @@ When updating an existing database, re-import `schema.sql`. Its `CREATE TABLE IF
 - `GET /stories`, `POST /stories`, `POST /stories/view` — text stories and view state.
 - `GET /conversations`, `POST /conversations` — private one-to-one conversations.
 - `GET /messages?room_id=...`, `GET /messages?conversation_id=...`, `POST /messages` — message history and sending.
+- `POST /ai/reply` — optionally proxy Echo AI prompts to a configured OpenAI-compatible provider. The API key stays in private PHP config; the endpoint accepts authenticated requests only.
 
 Responses follow an `ok/data` JSON envelope. Errors use `ok: false` and an error message.
 
