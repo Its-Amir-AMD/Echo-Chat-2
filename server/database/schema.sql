@@ -144,3 +144,22 @@ CREATE TABLE IF NOT EXISTS story_views (
   CONSTRAINT fk_story_views_story FOREIGN KEY (story_id) REFERENCES user_stories(id) ON DELETE CASCADE,
   CONSTRAINT fk_story_views_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Lightweight server-side abuse controls for login attempts and Echo AI usage.
+CREATE TABLE IF NOT EXISTS auth_login_attempts (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  email_hash CHAR(64) NOT NULL,
+  ip_hash CHAR(64) NOT NULL,
+  attempted_at DATETIME NOT NULL,
+  KEY idx_login_email_time (email_hash, attempted_at),
+  KEY idx_login_ip_time (ip_hash, attempted_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS ai_requests (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  user_id VARCHAR(64) NOT NULL,
+  requested_at DATETIME NOT NULL,
+  KEY idx_ai_user_time (user_id, requested_at),
+  CONSTRAINT fk_ai_requests_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
