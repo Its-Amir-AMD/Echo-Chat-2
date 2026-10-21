@@ -1,6 +1,7 @@
 package com.example.data.model
 
 import androidx.room.Entity
+import androidx.room.ColumnInfo
 import androidx.room.PrimaryKey
 import androidx.room.Index
 
@@ -17,6 +18,7 @@ data class ChannelEntity(
     val iconName: String = "forum",
     val isDirectMessage: Boolean = false,
     val peerName: String = "",
+    @ColumnInfo(defaultValue = "''") val peerId: String = "",
     val peerAvatarColor: Long = 0xFF4F46E5,
     val unreadCount: Int = 0,
     val lastMessage: String = "",
@@ -37,7 +39,9 @@ data class MessageEntity(
     val status: String = "read", // "sent", "delivered", "read"
     val replyToId: String? = null,
     val replyToSnippet: String? = null,
-    val reaction: String? = null
+    val reaction: String? = null,
+    // Local-only queue state. True once Firestore has acknowledged this message.
+    @ColumnInfo(defaultValue = "0") val isSynced: Boolean = false
 )
 
 @Entity(tableName = "user_profile")
@@ -90,4 +94,23 @@ data class StoryEntity(
     val storyTitle: String,
     val isViewed: Boolean = false,
     val timestamp: Long = System.currentTimeMillis()
+)
+
+
+/** Public directory data. Email addresses are deliberately not stored in this public document. */
+data class CloudPublicUser(
+    val uid: String = "",
+    val username: String = "",
+    val displayName: String = "",
+    val createdAt: Long = 0L
+)
+
+/** Membership-protected private conversation metadata stored in Firestore. */
+data class DirectConversationDocument(
+    val id: String = "",
+    val memberIds: List<String> = emptyList(),
+    val memberNames: Map<String, String> = emptyMap(),
+    val createdAt: Long = 0L,
+    val lastMessage: String = "",
+    val lastMessageTime: Long = 0L
 )

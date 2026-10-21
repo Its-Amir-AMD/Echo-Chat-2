@@ -14,6 +14,7 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.ui.EchoChatViewModel
+import com.example.ui.screens.AuthScreen
 import com.example.ui.screens.MainScreen
 import com.example.ui.theme.EchoChatTheme
 
@@ -26,13 +27,23 @@ class MainActivity : ComponentActivity() {
             val viewModel: EchoChatViewModel = viewModel()
             val currentLanguage by viewModel.currentLanguage.collectAsStateWithLifecycle()
             val isDarkMode by viewModel.isDarkMode.collectAsStateWithLifecycle()
+            val accountState by viewModel.accountState.collectAsStateWithLifecycle()
 
             val effectiveDarkTheme = isDarkMode ?: isSystemInDarkTheme()
 
             CompositionLocalProvider(LocalLayoutDirection provides currentLanguage.layoutDirection) {
                 EchoChatTheme(darkTheme = effectiveDarkTheme) {
                     Surface(modifier = Modifier.fillMaxSize()) {
-                        MainScreen(viewModel = viewModel)
+                        if (accountState.isCloudAvailable && accountState.isSignedIn) {
+                            MainScreen(viewModel = viewModel)
+                        } else {
+                            AuthScreen(
+                                viewModel = viewModel,
+                                accountState = accountState,
+                                language = currentLanguage,
+                                cloudAvailable = accountState.isCloudAvailable
+                            )
+                        }
                     }
                 }
             }

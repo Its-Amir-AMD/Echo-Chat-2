@@ -9,7 +9,9 @@ import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.auth.UserProfileChangeRequest
 import com.google.firebase.auth.GoogleAuthProvider
+import com.google.firebase.firestore.firestore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -36,6 +38,10 @@ import java.security.SecureRandom
 class FirebaseAuthManager(
     private val webClientId: String = DEFAULT_WEB_CLIENT_ID
 ) {
+    @Volatile
+    var isRegistrationInProgress: Boolean = false
+        private set
+
     private val auth: FirebaseAuth
         get() = FirebaseAuth.getInstance()
 
@@ -60,6 +66,81 @@ class FirebaseAuthManager(
         awaitClose { authInstance.removeAuthStateListener(listener) }
     }.distinctUntilChanged()
 
+    /** Sign in with an existing email/password account. */
+    suspend fun signInWithEmail(email: String, password: String): FirebaseUser {
+        require(email.isNotBlank()) { "Enter your email address." }
+        require(password.isNotEmpty()) { "Enter your password." }
+        return auth.signInWithEmailAndPassword(email.trim(), password).await().user
+            ?: throw IllegalStateException("Firebase did not return a signed-in user.")
+    }
+
+    /** Create an account. Firebase must have the Email/Password provider enabled. */
+    suspend fun createAccountWithEmail(
+        email: String,
+        password: String,
+        displayName: String,
+        username: String
+    ): FirebaseUser {
+        require(email.isNotBlank()) { "Enter your email address." }
+        require(password.length >= 8) { "Use a password with at least 8 characters." }
+        val normalizedUsername = username.trim().lowercase(java.util.Locale.ROOT)
+        require(normalizedUsername.matches(Regex("^[a-z0-9_]{3,24}$"))) {
+            "Username must be 3–24 characters using only letters, numbers, and underscores."
+        }
+
+        isRegistrationInProgress = true
+        var createdUser: FirebaseUser? = null
+        try {
+            val user = auth.createUserWithEmailAndPassword(email.trim(), password).await().user
+                ?: throw IllegalStateException("Firebase did not create the account.")
+            createdUser = user
+
+            val name = displayName.trim().ifEmpty { normalizedUsername }
+            user.updateProfile(
+                UserProfileChangeRequest.Builder().setDisplayName(name).build()
+            ).await()
+            reserveUsername(user, normalizedUsername, name)
+            return auth.currentUser ?: user
+        } catch (error: Exception) {
+            // Do not leave a half-registered account when a username reservation failed.
+            createdUser?.let { runCatching { it.delete().await() } }
+            auth.signOut()
+            throw error
+        } finally {
+            isRegistrationInProgress = false
+        }
+    }
+
+    private suspend fun reserveUsername(user: FirebaseUser, username: String, displayName: String) {
+        val firestore = com.google.firebase.Firebase.firestore
+        val usernameRef = firestore.collection("usernames").document(username)
+        val profileRef = firestore.collection("publicUsers").document(user.uid)
+        firestore.runTransaction { transaction ->
+            val existing = transaction.get(usernameRef)
+            if (existing.exists() && existing.getString("uid") != user.uid) {
+                throw IllegalArgumentException("That username is already taken. Choose another one.")
+            }
+            transaction.set(usernameRef, mapOf("uid" to user.uid, "usernameLower" to username))
+            transaction.set(
+                profileRef,
+                mapOf(
+                    "uid" to user.uid,
+                    "username" to username,
+                    "usernameLower" to username,
+                    "displayName" to displayName,
+                    "createdAt" to System.currentTimeMillis()
+                )
+            )
+            null
+        }.await()
+    }
+
+    /** Send Firebase's standard password-reset email. */
+    suspend fun sendPasswordResetEmail(email: String) {
+        require(email.isNotBlank()) { "Enter your email address first." }
+        auth.sendPasswordResetEmail(email.trim()).await()
+    }
+
     /**
      * Launches the Credential Manager Google Sign-In flow and exchanges the resulting
      * ID token for a Firebase session. Returns the signed-in [FirebaseUser].
@@ -69,14 +150,15 @@ class FirebaseAuthManager(
      * fallback rather than crash.
      */
     suspend fun signInWithGoogle(context: Context): FirebaseUser {
-        require(webClientId.isNotBlank() && webClientId != DEFAULT_WEB_CLIENT_ID) {
-            "Set a real OAuth Web Client ID (from the Firebase console) before enabling Google sign-in."
+        val resolvedWebClientId = resolveWebClientId(context)
+        require(resolvedWebClientId.isNotBlank() && resolvedWebClientId != DEFAULT_WEB_CLIENT_ID) {
+            "Google sign-in is not configured. Add a valid google-services.json from your Firebase project."
         }
 
         val nonce = generateNonce()
         val googleIdOption = GetGoogleIdOption.Builder()
             .setFilterByAuthorizedAccounts(false)
-            .setServerClientId(webClientId)
+            .setServerClientId(resolvedWebClientId)
             .setNonce(nonce)
             .build()
 
@@ -100,6 +182,14 @@ class FirebaseAuthManager(
 
     fun signOut() {
         runCatching { auth.signOut() }
+    }
+
+    private fun resolveWebClientId(context: Context): String {
+        // The Google Services Gradle plugin creates this resource from google-services.json.
+        val resourceId = context.resources.getIdentifier(
+            "default_web_client_id", "string", context.packageName
+        )
+        return if (resourceId != 0) context.getString(resourceId) else webClientId
     }
 
     private fun generateNonce(): String {

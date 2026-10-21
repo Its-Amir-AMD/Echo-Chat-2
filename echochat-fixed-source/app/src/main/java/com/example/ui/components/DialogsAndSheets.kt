@@ -164,19 +164,15 @@ fun CreateChannelDialog(
 fun StartDirectMessageDialog(
     language: AppLanguage,
     onDismiss: () -> Unit,
-    onStartChat: (peerName: String) -> Unit
+    onStartChat: (username: String, onComplete: (error: String?) -> Unit) -> Unit
 ) {
-    var name by remember { mutableStateOf("") }
-    val suggestedContacts = listOf(
-        "سارا احمدی (طراح)",
-        "علی راد (کاتلین)",
-        "رضا کاظمی (بک‌اند)",
-        "مونا فرهمند (مدیر محصول)",
-        "دستیار هوشمند اکو"
-    )
+    var username by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+    var isLoading by remember { mutableStateOf(false) }
+    val isPersian = language == AppLanguage.PERSIAN
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!isLoading) onDismiss() },
         title = {
             Text(
                 text = EchoStrings.get("new_dm", language),
@@ -185,54 +181,65 @@ fun StartDirectMessageDialog(
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text(EchoStrings.get("contact_name_label", language)) },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-
                 Text(
-                    text = EchoStrings.get("suggested_contacts_label", language),
-                    fontSize = 12.sp,
+                    text = if (isPersian)
+                        "نام کاربری دقیق شخص را وارد کن. ایمیل یا نام نمایشی لازم نیست."
+                    else
+                        "Enter the person's exact username. Email addresses and display names are not used for lookup.",
+                    fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    suggestedContacts.forEach { contact ->
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    onStartChat(contact)
-                                },
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                            )
-                        ) {
-                            Text(
-                                text = contact,
-                                modifier = Modifier.padding(10.dp),
-                                fontSize = 13.sp
-                            )
-                        }
-                    }
+                OutlinedTextField(
+                    value = username,
+                    onValueChange = {
+                        username = it.removePrefix("@").lowercase().filter { ch ->
+                            ch in 'a'..'z' || ch in '0'..'9' || ch == '_'
+                        }.take(32)
+                        error = null
+                    },
+                    label = { Text(if (isPersian) "نام کاربری" else "Username") },
+                    placeholder = { Text("example_user") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    enabled = !isLoading
+                )
+                if (!error.isNullOrBlank()) {
+                    Text(
+                        text = error.orEmpty(),
+                        color = MaterialTheme.colorScheme.error,
+                        fontSize = 12.sp
+                    )
+                }
+                if (isLoading) {
+                    Text(
+                        text = if (isPersian) "در حال اتصال به حساب..." else "Connecting to account…",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
                 }
             }
         },
         confirmButton = {
             Button(
                 onClick = {
-                    if (name.isNotBlank()) onStartChat(name.trim())
+                    isLoading = true
+                    error = null
+                    onStartChat(username.trim()) { failure ->
+                        isLoading = false
+                        if (failure == null) onDismiss() else error = failure
+                    }
                 },
-                enabled = name.isNotBlank()
+                enabled = !isLoading && username.matches(Regex("^[a-z0-9_]{3,32}$"))
             ) {
-                Text(EchoStrings.get("create", language))
+                Text(if (isLoading) {
+                    if (isPersian) "لطفاً صبر کنید" else "Please wait"
+                } else {
+                    EchoStrings.get("create", language)
+                })
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(onClick = onDismiss, enabled = !isLoading) {
                 Text(EchoStrings.get("cancel", language))
             }
         }
@@ -251,7 +258,6 @@ fun ProfileAndSettingsSheet(
     onToggleTheme: () -> Unit,
     sheetState: SheetState,
     accountState: com.example.ui.AccountUiState = com.example.ui.AccountUiState(),
-    onSignInWithGoogle: () -> Unit = {},
     onSignOut: () -> Unit = {}
 ) {
     var displayName by remember(profile) { mutableStateOf(profile?.displayName ?: "کاربر اکو") }
@@ -402,18 +408,18 @@ fun ProfileAndSettingsSheet(
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        accountState.username?.let { handle ->
+                            Text(
+                                text = (if (currentLanguage == AppLanguage.PERSIAN) "نام کاربری شما: @" else "Your username: @") + handle,
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
                         OutlinedButton(
                             onClick = onSignOut,
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(EchoStrings.get("cloud_account_sign_out", currentLanguage))
-                        }
-                    } else {
-                        OutlinedButton(
-                            onClick = onSignInWithGoogle,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(EchoStrings.get("cloud_account_sign_in", currentLanguage))
                         }
                     }
                     accountState.lastError?.let { error ->
