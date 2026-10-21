@@ -1,33 +1,40 @@
 # EchoChat Android
 
-Native Android application built with Kotlin, Jetpack Compose, Room, coroutines and a self-hosted PHP/MySQL REST API. Persian (RTL) and English (LTR) UI are supported.
+Native Android client built with Kotlin, Jetpack Compose, Room and coroutines. It supports Persian (RTL) and English (LTR).
 
-## Implemented in this branch
+**Backend policy:** account, chat and social data use the self-hosted PHP/MySQL API. Firebase SDKs, Firebase authentication, Firestore synchronization and Google Sign-In are not part of this app.
+
+## Current implementation
 
 - Email/password registration and login through the PHP API.
-- HTTPS server configuration from inside the app; the configured URL is stored privately on the device.
+- HTTPS server configuration in the app with an app-private stored session token.
 - Public chat rooms, exact username lookup and member-protected private conversations.
-- Local Room caching and retry of queued outgoing messages.
+- Room cache and retry of outgoing messages not yet acknowledged by the API.
 - Message history refresh through polling while the app is open.
-- Server-backed public room creation.
-- Server-synced text posts, likes, bookmarks, comments, and 24-hour text stories.
-- A redesigned Explore experience with search, category filters, stories and a responsive text feed.
-- Persian/English UI, theme preferences, and a local profile/settings screen.
+- Server-backed public-room creation and text social posts, likes, bookmarks, comments and 24-hour text stories.
+- Explore feed with search and category filters; saved posts, profile/settings, theme and language preferences.
+- Optional server-backed Echo AI. The private PHP server configuration supplies the AI-provider key; no provider key is embedded in the APK.
 
-## Server setup
+## PHP setup
 
-Follow the steps in ../server/README.md. The API URL in the app must point to the folder containing index.php, for example https://yourdomain.com/echochat-api. The backend health route at URL + /health should return ok: true and database: connected.
+Follow [../server/README.md](../server/README.md). The API URL entered in the app must point to the folder containing `index.php`, for example `https://yourdomain.com/echochat-api`. The `/health` route should report that the database is connected.
 
-The SQL schema seeds three public rooms: general, technology and help. You can customize their names and descriptions in the rooms table after installation.
+Import `../server/database/schema.sql` before testing. Register two accounts on separate devices or app installs to validate that public rooms and private conversations synchronize and that private data stays private.
+
+To enable Echo AI, configure `ai_api_key`, `ai_endpoint` and `ai_model` in the private server `config.php`. Keep credentials off the Android device and out of Git.
 
 ## Build on Windows
 
-Use Android Studio and JDK 21. From this folder, run Gradle tasks testDebugUnitTest, lintDebug, and assembleDebug. The debug APK is written to app/build/outputs/apk/debug/app-debug.apk.
+Use Android Studio with JDK 21. Open this directory as the project, then run:
 
-GitHub Actions runs unit tests, lint and a debug build when branches or pull requests are updated.
+```powershell
+.\gradlew.bat --no-daemon testDebugUnitTest lintDebug assembleDebug
+```
 
-## Scope and release readiness
+The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`. GitHub Actions also builds the debug APK and uploads it as an artifact.
 
-This branch is a working MVP, not a claim of production readiness. Password reset/email verification, login throttling, server moderation and abuse controls, account deletion/privacy flows, data retention, push notifications, WebSockets, end-to-end encryption, media uploads, delivery/read receipts, presence and load testing still need implementation. Text posts, likes, bookmarks, comments and text stories are synchronized by the PHP API. Media uploads, server-backed profile editing and Echo AI synchronization are not included yet. Before public release, test registration, logout, privacy isolation, public rooms and private conversations with at least two separate accounts/devices, review the PHP host setup, and add rate limiting and automated API tests.
+## Release readiness
 
-Firebase remains an optional dependency for the existing Echo AI integration only; normal account login and messaging use PHP/MySQL. Do not put database passwords, session tokens, signing keys or private hosting config into this repository.
+This is an MVP, not a production-ready release. Password reset/email verification, login throttling, moderation and abuse controls, account deletion/privacy workflows, retention and monitoring, push notifications, WebSockets, end-to-end encryption, media uploads, delivery/read receipts, presence and load/security testing still need implementation. Posts and stories are text-only. Echo AI works only when a compatible provider is configured on the PHP server.
+
+A release APK must be built and tested against the deployed API and signed with the owner's private release key. Never commit signing keys, session tokens, database credentials or provider secrets.
