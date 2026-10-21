@@ -10,6 +10,7 @@ EchoChat is a native Android social messenger built with Kotlin, Jetpack Compose
 - Explore feed, profile/settings UI, Persian RTL and English LTR, light/dark themes.
 - HTTPS-only remote API configuration, input validation and database prepared statements.
 - Firebase has been removed from the Android build and runtime. No Firebase project or `google-services.json` is required.
+- Echo AI requests are proxied through the PHP API to an optional OpenAI-compatible provider; provider credentials stay on the server.
 
 ## Repository layout
 
@@ -38,6 +39,6 @@ On Windows, use `gradlew.bat` with the same tasks. GitHub Actions runs tests, li
 
 ## Known release blockers
 
-This remains an MVP and must not be described as a fully production-ready social platform yet. Current server-synced social content is text-only. Media uploads, server-backed profile editing, password reset delivery, email verification, abuse reporting/moderation, account deletion and export, push notifications, WebSockets, online presence, delivery/read receipts, end-to-end encryption, load testing, and an independent security review remain to be implemented or validated. Firebase-based AI was removed rather than left as a hidden dependency; an AI feature needs a separately configured PHP/provider integration before it can be advertised as working.
+This remains an MVP and must not be described as a fully production-ready social platform yet. Current server-synced social content is text-only. Media uploads, server-backed profile editing, password reset delivery, email verification, abuse reporting/moderation, account deletion and export, push notifications, WebSockets, online presence, delivery/read receipts, end-to-end encryption, load testing, and an independent security review remain to be implemented or validated. Echo AI works only when a compatible provider is configured in the private PHP server config.
 
 Before public release, test registration, logout, rate limiting, room messaging, private-conversation privacy, and social-feed sync using two independent accounts and devices. Keep database credentials and signing keys out of Git.
