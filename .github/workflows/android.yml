@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   verify:
-    name: Test, lint, and build EchoChat
+    name: Test, lint, and build EchoChat APKs
     runs-on: ubuntu-latest
 
     steps:
@@ -30,16 +30,29 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Run unit tests, lint, and build the debug APK
+      - name: Verify no Firebase runtime/build dependencies
+        run: |
+          if grep -RInE 'com\.google\.firebase|libs\.firebase|com\.google\.gms\.google-services|google-services\.json' \
+            echochat-fixed-source/app/src/main \
+            echochat-fixed-source/app/build.gradle.kts \
+            echochat-fixed-source/build.gradle.kts \
+            echochat-fixed-source/gradle/libs.versions.toml; then
+            echo "Unexpected Firebase dependency detected."
+            exit 1
+          fi
+
+      - name: Run tests, lint, and build debug plus release APKs
         working-directory: echochat-fixed-source
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug
+          ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug assembleRelease
 
-      - name: Upload debug APK
+      - name: Upload APK artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: EchoChat-debug-apk
-          path: echochat-fixed-source/app/build/outputs/apk/debug/app-debug.apk
+          name: EchoChat-APK-builds
+          path: |
+            echochat-fixed-source/app/build/outputs/apk/debug/app-debug.apk
+            echochat-fixed-source/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 14
