@@ -272,6 +272,40 @@ try {
         ok(['rooms' => $rooms]);
     }
 
+    // Create a public room on the server; local-only channel creation is not enough.
+    if ($method === 'POST' && $path === '/rooms') {
+        $name = required_string($data, 'name', 100);
+        if (mb_length($name) < 2) fail(422, 'Channel name must contain at least 2 characters.');
+
+        $description = $data['description'] ?? '';
+        if (!is_string($description)) fail(422, 'Invalid field: description.');
+        $description = trim($description);
+        if (mb_length($description) > 255) fail(422, 'Channel description must be at most 255 characters.');
+
+        $iconName = $data['icon_name'] ?? 'forum';
+        $allowedIcons = ['forum', 'code', 'palette', 'smart_toy'];
+        if (!is_string($iconName) || !in_array($iconName, $allowedIcons, true)) {
+            fail(422, 'Choose a supported channel icon.');
+        }
+
+        $id = 'room_' . bin2hex(random_bytes(12));
+        $stmt = $db->prepare(
+            'INSERT INTO rooms (id, name, description, icon_name, is_active) VALUES (?, ?, ?, ?, 1)'
+        );
+        $stmt->execute([$id, $name, $description, $iconName]);
+
+        ok(['room' => [
+            'id' => $id,
+            'name' => $name,
+            'description' => $description,
+            'icon_name' => $iconName,
+            'is_direct_message' => false,
+            'last_message' => '',
+            'last_message_time' => 0,
+            'created_at' => (int) floor(microtime(true) * 1000),
+        ]], 201);
+    }
+
     if ($method === 'GET' && $path === '/conversations') {
         $stmt = $db->prepare('SELECT conversation_id FROM conversation_members WHERE user_id = ?');
         $stmt->execute([$user['id']]);

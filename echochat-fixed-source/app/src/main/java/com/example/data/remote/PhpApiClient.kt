@@ -183,16 +183,17 @@ class PhpApiClient(context: Context) {
         return buildList {
             for (i in 0 until array.length()) {
                 val item = array.getJSONObject(i)
-                add(ApiRoom(
-                    id = item.getString("id"),
-                    name = item.optString("name"),
-                    description = item.optString("description"),
-                    iconName = item.optString("icon_name", "forum"),
-                    lastMessage = item.optString("last_message"),
-                    lastMessageTime = item.optLong("last_message_time")
-                ))
+                add(parseRoom(item))
             }
         }
+    }
+
+    suspend fun createRoom(name: String, description: String, iconName: String = "forum"): ApiRoom {
+        val data = request("POST", "/rooms", JSONObject()
+            .put("name", name.trim())
+            .put("description", description.trim())
+            .put("icon_name", iconName))
+        return parseRoom(data.getJSONObject("room"))
     }
 
     suspend fun getConversations(): List<ApiConversation> {
@@ -271,6 +272,15 @@ class PhpApiClient(context: Context) {
         displayName = item.optString("display_name", item.optString("username")),
         email = item.optString("email"),
         createdAt = item.optLong("created_at_ms")
+    )
+
+    private fun parseRoom(item: JSONObject) = ApiRoom(
+        id = item.getString("id"),
+        name = item.optString("name"),
+        description = item.optString("description"),
+        iconName = item.optString("icon_name", "forum"),
+        lastMessage = item.optString("last_message"),
+        lastMessageTime = item.optLong("last_message_time")
     )
 
     private fun parseConversation(item: JSONObject) = ApiConversation(

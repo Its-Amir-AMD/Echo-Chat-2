@@ -68,11 +68,13 @@ import com.example.util.EchoStrings
 fun CreateChannelDialog(
     language: AppLanguage,
     onDismiss: () -> Unit,
-    onCreate: (name: String, desc: String, icon: String) -> Unit
+    onCreate: (name: String, desc: String, icon: String, onComplete: (String?) -> Unit) -> Unit
 ) {
     var name by remember { mutableStateOf("") }
     var desc by remember { mutableStateOf("") }
     var selectedIcon by remember { mutableStateOf("forum") }
+    var isCreating by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
     val icons = listOf(
         "forum" to Icons.Default.Forum,
@@ -109,6 +111,14 @@ fun CreateChannelDialog(
                     maxLines = 2
                 )
 
+                errorMessage?.let { message ->
+                    Text(
+                        text = message,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+
                 Text(
                     text = EchoStrings.get("channel_icon_label", language),
                     fontSize = 12.sp,
@@ -142,14 +152,23 @@ fun CreateChannelDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    if (name.isNotBlank()) {
-                        onCreate(name.trim(), desc.trim(), selectedIcon)
+                    if (name.isNotBlank() && !isCreating) {
+                        isCreating = true
+                        errorMessage = null
+                        onCreate(name.trim(), desc.trim(), selectedIcon) { error ->
+                            isCreating = false
+                            if (error == null) onDismiss() else errorMessage = error
+                        }
                     }
                 },
-                enabled = name.isNotBlank(),
+                enabled = name.trim().length >= 2 && !isCreating,
                 modifier = Modifier.testTag("confirm_create_channel_button")
             ) {
-                Text(EchoStrings.get("create", language))
+                Text(if (isCreating) {
+                    if (language == AppLanguage.PERSIAN) "در حال ایجاد..." else "Creating..."
+                } else {
+                    EchoStrings.get("create", language)
+                })
             }
         },
         dismissButton = {

@@ -478,9 +478,8 @@ fun MainScreen(
         CreateChannelDialog(
             language = currentLanguage,
             onDismiss = { showCreateChannelDialog = false },
-            onCreate = { name, desc, icon ->
-                viewModel.createChannel(name, desc, icon)
-                showCreateChannelDialog = false
+            onCreate = { name, desc, icon, onComplete ->
+                viewModel.createChannel(name, desc, icon, onComplete)
             }
         )
     }

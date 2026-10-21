@@ -513,9 +513,47 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun createChannel(name: String, desc: String, icon: String = "forum") {
+    fun createChannel(
+        name: String,
+        desc: String,
+        icon: String = "forum",
+        onComplete: (String?) -> Unit = {}
+    ) {
+        val account = _accountState.value
+        if (!account.isSignedIn) {
+            onComplete("برای ساخت کانال ابتدا وارد حساب کاربری شوید.")
+            return
+        }
+
+        val cleanName = name.trim()
+        if (cleanName.length < 2) {
+            onComplete("نام کانال باید حداقل دو نویسه داشته باشد.")
+            return
+        }
+
         viewModelScope.launch {
-            repository.createChannel(name, desc, icon)
+            try {
+                // Create remotely first. Never show a channel as created before the API confirms it.
+                val room = api.createRoom(cleanName, desc.trim(), icon)
+                val now = System.currentTimeMillis()
+                dao.insertChannel(
+                    ChannelEntity(
+                        id = room.id,
+                        name = room.name,
+                        description = room.description,
+                        iconName = room.iconName,
+                        isDirectMessage = false,
+                        lastMessage = room.lastMessage,
+                        lastMessageTime = room.lastMessageTime,
+                        createdAt = now
+                    )
+                )
+                _selectedChannelId.value = room.id
+                _currentMainTab.value = 0
+                onComplete(null)
+            } catch (error: Exception) {
+                onComplete(error.message ?: "ساخت کانال ناموفق بود. دوباره تلاش کنید.")
+            }
         }
     }
 
