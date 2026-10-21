@@ -9,7 +9,10 @@ Native Android application built with Kotlin, Jetpack Compose, Room, coroutines 
 - Public chat rooms, exact username lookup and member-protected private conversations.
 - Local Room caching and retry of queued outgoing messages.
 - Message history refresh through polling while the app is open.
-- Persian/English UI, theme preferences, local explore/feed/profile UI.
+- Server-backed public room creation.
+- Server-synced text posts, likes, bookmarks, comments, and 24-hour text stories.
+- A redesigned Explore experience with search, category filters, stories and a responsive text feed.
+- Persian/English UI, theme preferences, and a local profile/settings screen.
 
 ## Server setup
 
@@ -25,6 +28,6 @@ GitHub Actions runs unit tests, lint and a debug build when branches or pull req
 
 ## Scope and release readiness
 
-This branch is a working MVP, not a claim of production readiness. Password reset/email verification, login throttling, server moderation and abuse controls, account deletion/privacy flows, data retention, push notifications, WebSockets, end-to-end encryption, media uploads, delivery/read receipts, presence and load testing still need implementation. The Explore feed, stories, comments, profile editing and Echo AI are not synchronized by the PHP API. Before public release, test registration, logout, privacy isolation, public rooms and private conversations with at least two separate accounts/devices, review the PHP host setup, and add rate limiting and automated API tests.
+This branch is a working MVP, not a claim of production readiness. Password reset/email verification, login throttling, server moderation and abuse controls, account deletion/privacy flows, data retention, push notifications, WebSockets, end-to-end encryption, media uploads, delivery/read receipts, presence and load testing still need implementation. Text posts, likes, bookmarks, comments and text stories are synchronized by the PHP API. Media uploads, server-backed profile editing and Echo AI synchronization are not included yet. Before public release, test registration, logout, privacy isolation, public rooms and private conversations with at least two separate accounts/devices, review the PHP host setup, and add rate limiting and automated API tests.
 
 Firebase remains an optional dependency for the existing Echo AI integration only; normal account login and messaging use PHP/MySQL. Do not put database passwords, session tokens, signing keys or private hosting config into this repository.
