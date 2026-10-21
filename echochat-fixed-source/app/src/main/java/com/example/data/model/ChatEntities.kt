@@ -92,4 +92,4 @@ data class StoryEntity(
     val isViewed: Boolean = false,
     val timestamp: Long = System.currentTimeMillis()
 )
-\n
+
