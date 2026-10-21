@@ -12,6 +12,7 @@ Native Android application built with Kotlin, Jetpack Compose, Room, coroutines 
 - Server-synced text posts, likes, bookmarks, comments and 24-hour text stories.
 - Explore feed, profile/settings, language and theme controls.
 - No Firebase SDK, Firebase services, Google Services Gradle plugin, or `google-services.json` requirement.
+- The Echo AI chat can call the optional `/ai/reply` endpoint on the PHP backend; provider credentials remain server-side.
 
 ## Server setup
 
