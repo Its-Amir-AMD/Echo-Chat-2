@@ -179,6 +179,69 @@ function social_comment_payload(array $row): array {
     ];
 }
 
+function generate_ai_response(array $config, string $prompt): string {
+    $apiKey = trim((string)($config['ai_api_key'] ?? ''));
+    if ($apiKey === '') fail(503, 'Echo AI is not configured on this server.');
+
+    $endpoint = trim((string)($config['ai_endpoint'] ?? 'https://api.openai.com/v1/chat/completions'));
+    $url = parse_url($endpoint);
+    if (!is_array($url) || ($url['scheme'] ?? '') !== 'https' || empty($url['host']) || isset($url['user']) || isset($url['pass'])) {
+        fail(503, 'The Echo AI endpoint must be a valid HTTPS URL.');
+    }
+    if (!function_exists('curl_init')) fail(503, 'The PHP cURL extension is required for Echo AI.');
+
+    $model = trim((string)($config['ai_model'] ?? 'gpt-4o-mini'));
+    if ($model === '') fail(503, 'The Echo AI model is not configured.');
+    $requestBody = json_encode([
+        'model' => $model,
+        'messages' => [
+            ['role' => 'system', 'content' => 'You are Echo, a helpful assistant inside EchoChat. Reply in the same language as the user; prefer Persian when the user writes Persian. Be accurate, clear, safe and concise.'],
+            ['role' => 'user', 'content' => $prompt],
+        ],
+        'max_tokens' => 1200,
+        'temperature' => 0.7,
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if (!is_string($requestBody)) fail(500, 'Could not prepare the AI request.');
+
+    $handle = curl_init($endpoint);
+    if ($handle === false) fail(503, 'Could not initialize the AI HTTP client.');
+    curl_setopt_array($handle, [
+        CURLOPT_POST => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CONNECTTIMEOUT => 10,
+        CURLOPT_TIMEOUT => 45,
+        CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_SSL_VERIFYHOST => 2,
+        CURLOPT_HTTPHEADER => [
+            'Authorization: Bearer ' . $apiKey,
+            'Content-Type: application/json',
+            'Accept: application/json',
+        ],
+        CURLOPT_POSTFIELDS => $requestBody,
+    ]);
+    $body = curl_exec($handle);
+    $status = (int)curl_getinfo($handle, CURLINFO_RESPONSE_CODE);
+    $curlError = curl_error($handle);
+    curl_close($handle);
+
+    if (!is_string($body)) {
+        error_log('EchoChat AI transport error: ' . $curlError);
+        fail(502, 'The AI provider could not be reached.');
+    }
+    if ($status < 200 || $status >= 300) {
+        error_log('EchoChat AI provider returned HTTP ' . $status . '.');
+        fail(502, 'The AI provider rejected the request (HTTP ' . $status . ').');
+    }
+    try {
+        $decoded = json_decode($body, true, 32, JSON_THROW_ON_ERROR);
+    } catch (JsonException) {
+        fail(502, 'The AI provider returned invalid JSON.');
+    }
+    $reply = $decoded['choices'][0]['message']['content'] ?? '';
+    if (!is_string($reply) || trim($reply) === '') fail(502, 'The AI provider returned an empty response.');
+    return trim(mb_substr_safe(trim($reply), 12000));
+}
+
 try {
     // Works both when public/ is the document root and when its contents are
     // deployed into a subfolder such as public_html/echochat-api/.
@@ -284,6 +347,11 @@ try {
     }
 
     $user = auth_user($db);
+
+    if ($method === 'POST' && $path === '/ai/respond') {
+        $prompt = required_string($data, 'prompt', 8000);
+        ok(['reply' => generate_ai_response($config, $prompt)]);
+    }
 
     if ($method === 'GET' && $path === '/users') {
         $username = strtolower(trim((string)($_GET['username'] ?? '')));
