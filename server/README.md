@@ -1,58 +1,46 @@
 # EchoChat PHP + MySQL API
 
-This folder contains a self-hosted backend for Android account login, public chat rooms, username lookup, private conversations, and message history.
+Self-hosted REST API for EchoChat Android. The backend uses PHP 8.1+, PDO MySQL and MySQL 8+ (MariaDB 10.5+ may work). No Firebase services are required.
 
-## Requirements
+## Shared-host deployment
 
-- PHP 8.1+ with PDO MySQL enabled.
-- MySQL 8+ (MariaDB 10.5+ may also work).
-- A domain/hosting account with HTTPS enabled.
-- Apache URL rewriting enabled for the supplied .htaccess file.
+1. Create a MySQL database and a least-privilege user in the hosting panel.
+2. Import `server/database/schema.sql` with phpMyAdmin or the SQL importer.
+3. Copy `server/config.example.php` to `config.php` outside the public web root. Set the actual database credentials and replace the example `rate_limit_hmac_key` with a long random secret.
+4. Upload the contents of `server/public/` into a folder such as `public_html/echochat-api/`. Keep private config outside the publicly downloadable directory.
+5. Enable Apache rewrite rules and HTTPS.
+6. Open `https://YOUR_DOMAIN/echochat-api/health`; expect `ok: true` and `database: connected`.
+7. Enter the base URL of the folder containing `index.php` into the Android app.
 
-## Deploy to shared hosting
-
-1. Create a MySQL database and a database user in the hosting control panel. Grant the user access only to this database.
-2. Import the SQL file at server/database/schema.sql using phpMyAdmin or the host's SQL importer.
-3. Copy server/config.example.php to config.php and enter the actual database host, database name, username, and password. Never commit real credentials.
-4. Upload the contents of server/public/ into a web folder such as public_html/echochat-api/. Keep config.php outside the public web root. If you upload the public folder's contents into public_html/echochat-api/, place config.php in the hosting account's private home directory (usually one level above public_html). The API checks that private location. If you instead preserve the original server/public directory layout, keep config.php alongside server/public, outside the public web root. Do not leave real config credentials anywhere directly downloadable from the website.
-5. Confirm .htaccess rewriting is enabled and install a valid HTTPS certificate.
-6. Open https://YOUR_DOMAIN/echochat-api/health. The response should contain ok: true and database: connected.
-7. In EchoChat, enter https://YOUR_DOMAIN/echochat-api in the server URL field and tap Connect.
-
-The base URL must point to the folder containing index.php. Do not add /index.php to it.
+When updating an existing database, re-import `schema.sql`. Its `CREATE TABLE IF NOT EXISTS` statements preserve existing tables and create the new rate-limit table. Do not commit real configuration or credentials.
 
 ## API routes
 
-- GET /health — check the API and database connection.
-- POST /auth/register — create an account and access token.
-- POST /auth/login — sign in with email and password.
-- GET /auth/me — validate the current session.
-- POST /auth/logout — revoke the current token.
-- GET /users?username=handle — exact username lookup.
-- GET /rooms — list public rooms.
-- POST /rooms — create a public room for the signed-in account.
-- GET /posts — list the latest social posts with per-user likes/bookmarks.
-- POST /posts — publish a text post.
-- POST /posts/like — toggle the signed-in user's like on a post.
-- POST /posts/bookmark — toggle a saved-post bookmark.
-- POST /posts/delete — delete a post owned by the signed-in user.
-- GET /comments?post_id=... — list comments for a post.
-- POST /comments — publish a comment.
-- GET /stories — list unexpired stories and per-user view state.
-- POST /stories — publish a text story (expires after 24 hours).
-- POST /stories/view — mark an active story as viewed.
-- GET /conversations — list the signed-in user's private conversations.
-- POST /conversations — create or return a private conversation for a username.
-- GET /messages?room_id=general — recent messages for a public room.
-- GET /messages?conversation_id=dm_... — recent messages in a private conversation.
-- POST /messages — send a message. channel_id is a room id or conversation id.
+- `GET /health` — service and database health.
+- `POST /auth/register` — create an email/password account.
+- `POST /auth/login` — authenticate and issue a bearer token.
+- `GET /auth/me` — validate the current session.
+- `POST /auth/logout` — revoke the current token.
+- `GET /users?username=handle` — exact username lookup.
+- `GET /rooms`, `POST /rooms` — list/create public rooms.
+- `GET /posts`, `POST /posts` — text posts.
+- `POST /posts/like`, `POST /posts/bookmark`, `POST /posts/delete` — post interactions.
+- `GET /comments?post_id=...`, `POST /comments` — comments.
+- `GET /stories`, `POST /stories`, `POST /stories/view` — text stories and view state.
+- `GET /conversations`, `POST /conversations` — private one-to-one conversations.
+- `GET /messages?room_id=...`, `GET /messages?conversation_id=...`, `POST /messages` — message history and sending.
 
-Success responses use an ok/data JSON envelope. Errors use ok: false and an error message.
+Responses follow an `ok/data` JSON envelope. Errors use `ok: false` and an error message.
 
-## Security and MVP boundaries
+## Current protections
 
-Passwords are stored with PHP password_hash, SQL uses prepared statements, and bearer tokens are random values whose SHA-256 hashes are stored in MySQL. Tokens expire and logout revokes them. Private message reads and writes require membership. Email addresses are not returned by username search.
+- Passwords use PHP `password_hash` / `password_verify`.
+- SQL requests use PDO prepared statements.
+- Bearer tokens are random values; only SHA-256 hashes are stored server-side. Tokens expire and logout revokes them.
+- Private-conversation reads and sends require conversation membership.
+- Login failures are rate-limited by a one-way hash of email and IP; registration attempts are throttled by email/IP. Raw IP addresses and email addresses are not written to the rate-limit table.
+- The Android client requires HTTPS for non-localhost APIs.
 
-Serve this API only over HTTPS. Keep configuration credentials outside the public web root, use a least-privilege database user, keep backups, and don't publish database credentials or access tokens.
+## Remaining production work
 
-This is an MVP, not yet a public-release-ready service. Before a broad release, add and test login throttling, email verification and password-reset delivery, abuse reporting/moderation, privacy and account-deletion workflows, data retention, monitoring, and independent security testing. Messages and social-feed data are refreshed by polling while the app is open; push notifications, WebSockets, end-to-end encryption, media uploads, delivery/read receipts, online presence, server-backed profile editing, and Echo AI synchronization are not included.
+This is not yet a production-ready general-purpose social platform. Email verification and password-reset delivery, moderation and abuse reporting, account deletion/export, privacy policy and retention workflows, media uploads/storage, server-backed profile editing, push notifications, WebSockets, read/delivery receipts, online presence, end-to-end encryption, detailed audit logging, load testing and independent security review remain to be implemented or tested. Social feed data is text-only. Firebase-based AI has been removed; AI requires a separately secured PHP/provider integration.
